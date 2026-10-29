@@ -8,13 +8,16 @@ from app.backends.windows_native import NativeWindowsBackend, readable_error
 from app.backends.ext4_readonly import Ext4ReadOnlyBackend, Ext4Error
 from app.services.backend_access import query_page
 from app.services.messages import user_message
+from app.services.preview import query_preview
 
 
 def main() -> int:
     try:
         request = json.load(sys.stdin)
-        page = query_page(request)
-        result = {"page": asdict(page)}
+        if request.get("task") == "preview":
+            result = {"preview": asdict(query_preview(request))}
+        else:
+            result = {"page": asdict(query_page(request))}
     except Exception as exc:
         result = {"error": user_message(exc)}
     print(json.dumps(result, ensure_ascii=True))

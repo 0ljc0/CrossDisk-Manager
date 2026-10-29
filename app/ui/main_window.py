@@ -19,11 +19,14 @@ from app.services.disk_inventory import DiskInventoryService
 from app.backends.inventory_browser import InventoryBrowserSource
 from app.jobs.inventory_worker import InventoryWorker
 from app.jobs.directory_worker import DirectoryWorker
+from app.jobs.directory_worker import PreviewWorker
 from app.core.browser import DirectoryPage
 from app.backends.ext4_readonly import Ext4Error, validate_path
 from app.core.capability_policy import CapabilityPolicy
 from app.core.browser import ReadOnlyCapabilities
 from app.services.messages import user_message
+from app.core.preview import ENCODINGS, MAX_TEXT_LIMIT, TEXT_LIMIT, TEXT_TYPES, PreviewResult
+from app.ui.preview_panel import PreviewPanel
 
 
 class PropertyView(QPlainTextEdit):
@@ -55,6 +58,12 @@ class MainWindow(QMainWindow):
         self.worker: InventoryWorker | None = None
         self.close_pending = False
         self.directory_worker: DirectoryWorker | None = None
+        self.preview_worker: PreviewWorker | None = None
+        self.pending_preview: dict | None = None
+        self.preview_request_id = 0
+        self.preview_location: Location | None = None
+        self.preview_limit = TEXT_LIMIT
+        self.preview_result: PreviewResult | None = None
         self.pending_directory: dict | None = None
         self.next_offset: int | None = None
         self.fingerprint = ""
@@ -146,7 +155,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.hidden_action)
         help_menu = self.menuBar().addMenu("帮助")
         self._action("关于演示", lambda: QMessageBox.information(
-            self, "关于", "CrossDisk Manager\n任务 05：Windows 与经过验证的 ext4 只读浏览。\nLinux 类型候选单击时核对身份及格式，权限不足时不自动提权。\n所有文件写入功能禁用。"), help_menu)
+            self, "关于", "CrossDisk Manager\n任务 07：Windows/ext4 只读浏览与安全文本、图片预览。\n读取有上限，不执行文件，不自动提权。\n所有文件写入功能禁用。"), help_menu)
 
     def _build_views(self) -> None:
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -213,7 +222,14 @@ class MainWindow(QMainWindow):
         right.setMinimumWidth(140)
         right_layout = QVBoxLayout(right)
         right_layout.addWidget(QLabel("属性与预览"))
-        right_layout.addWidget(self.properties)
+        self.preview_panel = PreviewPanel()
+        self.preview_panel.encoding_changed.connect(self.reload_preview)
+        self.preview_panel.more_requested.connect(self.more_preview)
+        self.right_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.right_splitter.addWidget(self.properties)
+        self.right_splitter.addWidget(self.preview_panel)
+        self.right_splitter.setSizes([220, 400])
+        right_layout.addWidget(self.right_splitter)
         self.splitter.addWidget(right)
         self.splitter.setSizes([300, 440, 260])
         self.splitter.setStretchFactor(1, 1)
@@ -378,12 +394,13 @@ class MainWindow(QMainWindow):
         entry = index.data(Qt.ItemDataRole.UserRole)
         if entry:
             readable, writable, link = (FileTableModel.permission(v) for v in (entry.readable, entry.writable, entry.is_link))
-            note = (f"权限属性提示：读 {readable} / 写 {writable}\n实际访问仍由 Windows 权限决定，应用写入禁用。\n链接/重解析点：{link}\n{entry.error}\n文件内容预览尚未接入。"
+            note = (f"权限属性提示：读 {readable} / 写 {writable}\n实际访问仍由 Windows 权限决定，应用写入禁用。\n链接/重解析点：{link}\n{entry.error}\n支持的普通文件在下方只读预览。"
                     if self.inventory_service else "模拟属性，尚未接入文件内容预览。")
             if isinstance(self.source, InventoryBrowserSource) and self.location.partition_id in self.source.ext4:
-                note = f"Unix 权限位提示：读 {readable} / 写 {writable}\n仅供参考，不能视为实际授权。\n后端只读，写入始终禁用。\n符号链接：{link}\n{entry.error}\n文件内容预览尚未接入。"
+                note = f"Unix 权限位提示：读 {readable} / 写 {writable}\n仅供参考，不能视为实际授权。\n后端只读，写入始终禁用。\n符号链接：{link}\n{entry.error}\n支持的普通文件在下方只读预览。"
             size = "未知" if entry.size is None else f"{entry.size:,} B"
             self.properties.setText(f"{entry.name}\n\n类型：{'链接（受限）' if entry.is_link else '未知' if entry.is_directory is None else '文件夹' if entry.is_directory else '文件'}\n大小：{size}\n修改时间：{entry.modified or '未知'}\n访问状态：{entry.access_status}\n后端来源：{entry.backend_source}\n\n{note}\n\n写入禁用：{self.block_reason}")
+            self.select_preview(entry)
 
     def open_entry(self, index) -> None:
         entry = index.data(Qt.ItemDataRole.UserRole)
@@ -398,7 +415,7 @@ class MainWindow(QMainWindow):
                 self.report_error(user_message(exc))
         elif entry:
             self.show_entry(index)
-            self.statusBar().showMessage("已显示文件属性，内容预览将在后续任务接入")
+            self.statusBar().showMessage("正在只读预览，不执行或外部打开文件")
 
     def open_address(self) -> None:
         if isinstance(self.source, InventoryBrowserSource):
@@ -443,12 +460,109 @@ class MainWindow(QMainWindow):
             self.scan_inventory()
 
     def cancel_directory(self) -> None:
+        self.cancel_preview()
         self.pending_directory = None
         self.next_offset = None
         self.fingerprint = ""
         self.more_button.setVisible(False)
         if self.directory_worker:
             self.directory_worker.requestInterruption()
+
+    def cancel_preview(self) -> None:
+        self.preview_request_id += 1
+        self.pending_preview = None
+        self.preview_location = None
+        self.preview_result = None
+        self.preview_limit = TEXT_LIMIT
+        if self.preview_worker:
+            self.preview_worker.requestInterruption()
+        self.preview_panel.clear()
+
+    def select_preview(self, entry) -> None:
+        self.cancel_preview()
+        if entry.is_directory is not False:
+            return
+        reason = self.policy.entry_reason(entry, entry.backend_source)
+        if reason:
+            self.preview_panel.clear(reason)
+            return
+        if not isinstance(self.source, InventoryBrowserSource) or not self.location:
+            self.preview_panel.clear("模拟数据没有实际文件内容")
+            return
+        try:
+            self.preview_location = self.location.child(entry.name)
+        except ValueError as exc:
+            self.preview_panel.clear(user_message(exc))
+            return
+        self.preview_panel.encoding.blockSignals(True)
+        self.preview_panel.encoding.setCurrentIndex(0)
+        self.preview_panel.encoding.blockSignals(False)
+        self.queue_preview()
+
+    def queue_preview(self) -> None:
+        if not self.preview_location or not isinstance(self.source, InventoryBrowserSource):
+            return
+        self.preview_request_id += 1
+        if self.preview_worker:
+            self.preview_worker.requestInterruption()
+        try:
+            target = self.preview_location
+            self.pending_preview = dict(request_id=self.preview_request_id, location=target,
+                root=self.source.roots.get(target.partition_id, ""), backend_spec=self.source.request_spec(target.partition_id),
+                byte_limit=self.preview_limit, encoding=ENCODINGS[self.preview_panel.encoding.currentIndex()],
+                parent=self, timeout=45 if target.partition_id in self.source.ext4 else 15)
+        except ValueError as exc:
+            self.preview_failed(self.preview_request_id, user_message(exc))
+            return
+        self.preview_panel.clear("正在后台只读加载预览…")
+        if not self.preview_worker:
+            self.launch_preview()
+
+    def launch_preview(self) -> None:
+        if not self.pending_preview:
+            return
+        arguments, self.pending_preview = self.pending_preview, None
+        self.preview_worker = PreviewWorker(**arguments)
+        self.preview_worker.succeeded.connect(self.preview_ready)
+        self.preview_worker.failed.connect(self.preview_failed)
+        self.preview_worker.finished.connect(self.preview_finished)
+        self.preview_worker.start()
+
+    def preview_ready(self, request_id: int, result: PreviewResult) -> None:
+        if request_id != self.preview_request_id or self.close_pending:
+            return
+        if not self.preview_location or (result.partition_id, result.relative_path) != (self.preview_location.partition_id, self.preview_location.path):
+            return
+        self.preview_result = result
+        self.preview_panel.show_result(result, self.preview_limit, self.partitions[result.partition_id].name)
+
+    def preview_failed(self, request_id: int, message: str) -> None:
+        if request_id != self.preview_request_id or self.close_pending:
+            return
+        self.preview_result = None
+        self.preview_panel.clear(message)
+        if self.preview_location:
+            from pathlib import PurePosixPath
+            self.preview_panel.encoding.setEnabled(PurePosixPath(self.preview_location.path).suffix.lower() in TEXT_TYPES)
+        self.statusBar().showMessage("预览失败：" + message)
+        self.logger.error("只读预览未完成")
+
+    def reload_preview(self) -> None:
+        self.queue_preview()
+
+    def more_preview(self) -> None:
+        if self.preview_limit < MAX_TEXT_LIMIT:
+            self.preview_limit = min(MAX_TEXT_LIMIT, self.preview_limit + TEXT_LIMIT)
+            self.queue_preview()
+
+    def preview_finished(self) -> None:
+        if self.preview_worker:
+            self.preview_worker.deleteLater()
+            self.preview_worker = None
+        if self.close_pending:
+            self.close()
+        else:
+            self.launch_preview()
 
     def start_directory(self, offset: int = 0) -> None:
         if not isinstance(self.source, InventoryBrowserSource) or not self.location:
@@ -601,6 +715,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(self.block_reason)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.preview_worker:
+            self.close_pending = True
+            self.cancel_preview()
+            event.ignore()
+            return
         if self.directory_worker:
             self.close_pending = True
             self.request_id += 1

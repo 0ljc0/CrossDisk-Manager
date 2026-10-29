@@ -10,6 +10,7 @@ import time
 from PySide6.QtCore import QThread, Signal
 
 from app.core.browser import DirectoryPage, FileEntry, Location
+from app.core.preview import PreviewResult
 
 
 class DirectoryWorker(QThread):
@@ -30,10 +31,10 @@ class DirectoryWorker(QThread):
     def run(self) -> None:
         process = None
         try:
-            process = subprocess.Popen([sys.executable, "-m", "app.jobs.native_query"],
+            process = subprocess.Popen([sys.executable, "-B", "-m", "app.jobs.native_query"],
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, encoding="utf-8", cwd=Path(__file__).resolve().parents[2],
-                env=dict(os.environ, PYTHONIOENCODING="utf-8"),
+                env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1"),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             deadline = time.monotonic() + self.timeout
             payload = json.dumps(self.request, ensure_ascii=True)
@@ -53,6 +54,8 @@ class DirectoryWorker(QThread):
             data = json.loads(output)
             if "error" in data:
                 self.failed.emit(self.request_id, data["error"])
+            elif "preview" in data:
+                self.succeeded.emit(self.request_id, PreviewResult(**data["preview"]))
             else:
                 page = data["page"]
                 self.succeeded.emit(self.request_id, DirectoryPage(tuple(FileEntry(**e) for e in page["entries"]),
@@ -75,3 +78,12 @@ class DirectoryWorker(QThread):
                     if process.poll() is None:
                         process.kill()
                 process.communicate()
+
+
+class PreviewWorker(DirectoryWorker):
+    """沿用进程隔离、取消和超时机制，结果与目录请求各自维护编号。"""
+
+    def __init__(self, request_id: int, location: Location, root: str, backend_spec: dict,
+                 byte_limit: int, encoding: str, parent=None, timeout: float = 15) -> None:
+        super().__init__(request_id, location, root, False, backend_spec=backend_spec, parent=parent, timeout=timeout)
+        self.request.update(task="preview", byte_limit=byte_limit, encoding=encoding)

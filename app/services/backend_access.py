@@ -14,7 +14,7 @@ from app.core.virtual_path import VirtualPath
 
 
 @contextmanager
-def open_backend(request: dict) -> Iterator[FileSystemBackend]:
+def open_backend(request: dict, operation: str = "list_dir") -> Iterator[FileSystemBackend]:
     spec = request.get("backend_spec") or {}
     metadata = spec.get("partition")
     if not metadata:
@@ -25,7 +25,8 @@ def open_backend(request: dict) -> Iterator[FileSystemBackend]:
     kind = spec.get("kind", "ext4")
     policy = CapabilityPolicy()
     decision = policy.evaluate(partition, ReadOnlyCapabilities, kind)
-    if not decision.browse:
+    allowed = {"list_dir": decision.browse, "stat": decision.stat, "open_read": decision.open_read}
+    if not allowed.get(operation, False):
         raise ValueError(decision.reason)
     if kind == "ext4":
         backend = (Ext4ReadOnlyBackend.from_image(spec["image"], expected_fs=spec.get("fingerprint", ""))
@@ -37,8 +38,9 @@ def open_backend(request: dict) -> Iterator[FileSystemBackend]:
     try:
         if not isinstance(backend, FileSystemBackend):
             raise ValueError("后端不符合统一只读接口")
-        if not policy.evaluate(partition, backend.get_capabilities, kind).browse:
-            raise ValueError("后端没有只读目录能力")
+        actual = policy.evaluate(partition, backend.get_capabilities, kind)
+        if not {"list_dir": actual.browse, "stat": actual.stat, "open_read": actual.open_read}.get(operation, False):
+            raise ValueError("后端没有本次只读操作所需的能力")
         yield backend
     finally:
         if isinstance(backend, Ext4ReadOnlyBackend):
