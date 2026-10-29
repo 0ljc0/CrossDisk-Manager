@@ -7,7 +7,7 @@ from pathlib import Path
 SAMPLE = "CrossDisk ext4 只读样本\n".encode("utf-8")
 
 
-def make_image(path: Path) -> Path:
+def make_image(path: Path, *, include_python: bool = False) -> Path:
     data = bytearray(4 * 1024 * 1024)
     sb = memoryview(data)[1024:2048]
     def u32(where, value):
@@ -53,8 +53,14 @@ def make_image(path: Path) -> Path:
     inode(17, 0xa1ff, len(b"../demo"), target=b"../demo")
     directory(40, [(2, ".", 2), (2, "..", 2), (12, "home", 2)])
     directory(41, [(12, ".", 2), (2, "..", 2), (13, "demo", 2)])
-    directory(42, [(13, ".", 2), (12, "..", 2), (14, "sample.txt", 1),
-                   (15, "中文 空格.txt", 1), (16, ".hidden", 1), (17, "loop", 7)])
+    entries = [(13, ".", 2), (12, "..", 2), (14, "sample.txt", 1),
+               (15, "中文 空格.txt", 1), (16, ".hidden", 1), (17, "loop", 7)]
+    if include_python:
+        content = b"print('image only')\n"
+        inode(18, 0x81a4, len(content), 46)
+        data[46 * 1024:46 * 1024 + len(content)] = content
+        entries.append((18, "script.py", 1))
+    directory(42, entries)
     data[43 * 1024:43 * 1024 + len(SAMPLE)] = SAMPLE
     data[44 * 1024:44 * 1024 + 3] = b"abc"
     data[45 * 1024:45 * 1024 + 3] = b"xyz"

@@ -6,7 +6,7 @@ from dataclasses import replace
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QTextOption
 from PySide6.QtWidgets import (QApplication, QHeaderView, QLabel, QLineEdit, QMainWindow, QPlainTextEdit,
                                QMessageBox, QPushButton, QSplitter, QStackedWidget, QTableView,
-                               QToolBar, QToolButton, QTreeView, QVBoxLayout, QHBoxLayout, QScrollArea, QWidget)
+                               QToolBar, QToolButton, QTreeView, QVBoxLayout, QHBoxLayout, QScrollArea, QComboBox, QWidget)
 from PySide6.QtCore import QSortFilterProxyModel, QTimer, Qt
 
 from app.core.config import AppConfig, ConfigStore
@@ -27,6 +27,9 @@ from app.core.browser import ReadOnlyCapabilities
 from app.services.messages import user_message
 from app.core.preview import ENCODINGS, MAX_TEXT_LIMIT, TEXT_LIMIT, TEXT_TYPES, PreviewResult
 from app.ui.preview_panel import PreviewPanel
+from app.core.search import SearchQuery
+from app.ui.search_models import FileFilterProxy
+from app.ui.search_dialog import SearchDialog
 
 
 class PropertyView(QPlainTextEdit):
@@ -53,6 +56,7 @@ class MainWindow(QMainWindow):
         self.store = store
         self.logger = logger
         self.policy = CapabilityPolicy()
+        self.search_dialog: SearchDialog | None = None
         self.inventory_service = inventory_service
         self.inventory: DiskInventory | None = None
         self.worker: InventoryWorker | None = None
@@ -114,6 +118,8 @@ class MainWindow(QMainWindow):
         self.refresh_action = self._action("刷新", self.refresh, navigation, "F5")
         self.scan_action = self._action("重扫磁盘", self.scan_inventory, navigation)
         self.scan_action.setVisible(self.inventory_service is not None)
+        self.global_search_action = self._action("跨分区搜索", self.open_search, navigation, "Ctrl+Shift+F")
+        self.global_search_action.setEnabled(False)
         self.addToolBarBreak()
         address_bar = QToolBar("地址与搜索", self)
         address_bar.setMovable(False)
@@ -128,7 +134,20 @@ class MainWindow(QMainWindow):
         self.search.setMaximumWidth(260)
         self.search.setPlaceholderText("筛选当前模拟目录…")
         self.search.setClearButtonEnabled(True)
+        self.search.setMaxLength(256)
         address_bar.addWidget(self.search)
+        self.local_field = QComboBox()
+        self.local_field.addItems(["名称", "路径"])
+        self.local_extensions = QLineEdit()
+        self.local_extensions.setPlaceholderText("扩展名 .py,.md")
+        self.local_extensions.setMaximumWidth(140)
+        self.local_extensions.setMaxLength(256)
+        self.local_type = QComboBox()
+        for name, value in (("全部类型", "all"), ("文件", "file"), ("目录", "directory"), ("链接", "link")):
+            self.local_type.addItem(name, value)
+        address_bar.addWidget(self.local_field)
+        address_bar.addWidget(self.local_extensions)
+        address_bar.addWidget(self.local_type)
         self.addToolBarBreak()
         operations = QToolBar("文件操作", self)
         operations.setMovable(False)
@@ -155,7 +174,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.hidden_action)
         help_menu = self.menuBar().addMenu("帮助")
         self._action("关于演示", lambda: QMessageBox.information(
-            self, "关于", "CrossDisk Manager\n任务 07：Windows/ext4 只读浏览与安全文本、图片预览。\n读取有上限，不执行文件，不自动提权。\n所有文件写入功能禁用。"), help_menu)
+            self, "关于", "CrossDisk Manager\n任务 08：只读浏览、预览与名称/属性搜索。\n搜索显式启动，有预算与取消，不读取文件内容或自动监控。\n所有文件写入功能禁用。"), help_menu)
 
     def _build_views(self) -> None:
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -170,7 +189,7 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.tree)
         self.table = QTableView()
         self.file_model = FileTableModel(self)
-        self.proxy = QSortFilterProxyModel(self)
+        self.proxy = FileFilterProxy(self)
         self.proxy.setSourceModel(self.file_model)
         self.proxy.setFilterCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
         self.proxy.setFilterKeyColumn(0)
@@ -235,6 +254,9 @@ class MainWindow(QMainWindow):
         self.splitter.setStretchFactor(1, 1)
         self.setCentralWidget(self.splitter)
         self.search.textChanged.connect(self.filter_entries)
+        self.local_extensions.textChanged.connect(lambda: self.filter_entries(self.search.text()))
+        self.local_type.currentIndexChanged.connect(lambda: self.filter_entries(self.search.text()))
+        self.local_field.currentIndexChanged.connect(lambda: self.filter_entries(self.search.text()))
         self.safety_label = QLabel("模拟数据 · 全局只读")
         self.statusBar().addPermanentWidget(self.safety_label)
 
@@ -360,7 +382,16 @@ class MainWindow(QMainWindow):
         self.filter_entries(self.search.text())
 
     def filter_entries(self, text: str) -> None:
-        self.proxy.setFilterFixedString(text)
+        try:
+            query = SearchQuery(name_pattern=text if self.local_field.currentIndex() == 0 else "*",
+                path_contains=text if self.local_field.currentIndex() == 1 else "",
+                extensions=self.local_extensions.text(), entry_type=self.local_type.currentData())
+            path = self.location.path if self.location else ""
+            backend = "ext4" if isinstance(self.source, InventoryBrowserSource) and self.location and self.location.partition_id in self.source.ext4 else "Windows"
+            self.proxy.set_query(query, path, backend)
+        except ValueError as exc:
+            self.statusBar().showMessage(str(exc))
+            return
         if self.loading or self.load_failed:
             return
         count = self.proxy.rowCount()
@@ -372,6 +403,59 @@ class MainWindow(QMainWindow):
                               "此目录为空或当前可见文件为空")
         prefix = "已加载" if self.inventory_service else "模拟目录"
         self.statusBar().showMessage(f"{prefix} · {count} 项 · 写入禁用：{self.block_reason}")
+
+    def build_search_sources(self, scope: int) -> tuple[list[dict], list[str]]:
+        if not isinstance(self.source, InventoryBrowserSource):
+            raise ValueError("模拟模式没有真实递归搜索后端")
+        if scope not in (0, 1, 2):
+            raise ValueError("搜索范围无效")
+        if scope != 2 and not self.location:
+            raise ValueError("请先选择要搜索的分区或目录")
+        sources, skipped = [], []
+        for partition in self.source.partitions():
+            if scope != 2 and partition.id != self.location.partition_id:
+                continue
+            decision = self.source.decision(partition.id)
+            reason = ""
+            if not decision.browse:
+                reason = decision.reason
+            elif partition.id in self.source.ext4 and not self.source.ext4[partition.id].get("fingerprint"):
+                reason = "ext4 尚未验证可读，请先人工打开并验证"
+            if reason:
+                skipped.append(partition.name + "：" + reason)
+                continue
+            sources.append(dict(partition_id=partition.id, partition_name=partition.name,
+                relative_path=self.location.path if scope == 0 else "", root=self.source.roots.get(partition.id, ""),
+                backend_spec=self.source.request_spec(partition.id)))
+        return sources, skipped
+
+    def open_search(self) -> None:
+        if self.search_dialog is None:
+            self.search_dialog = SearchDialog(self.build_search_sources, self)
+            self.search_dialog.locate_requested.connect(self.locate_search_result)
+            self.search_dialog.idle.connect(self.search_idle)
+        self.search_dialog.close_pending = False
+        self.search_dialog.showNormal()
+        self.search_dialog.raise_()
+
+    def locate_search_result(self, result) -> None:
+        if (not isinstance(self.source, InventoryBrowserSource) or result.partition_id not in self.partitions
+                or not self.source.decision(result.partition_id).browse):
+            self.report_error("搜索结果所属分区已失效或受保护，请重新搜索")
+            return
+        try:
+            location = Location(result.partition_id, result.relative_path)
+            target = location if result.entry.is_directory is True and result.entry.is_link is False else location.parent
+            self.navigate(target)
+            self.statusBar().showMessage("已定位目录，目标：" + result.entry.name)
+            if self.search_dialog and not self.search_dialog.worker:
+                self.search_dialog.hide()
+        except ValueError as exc:
+            self.report_error(user_message(exc))
+
+    def search_idle(self) -> None:
+        if self.close_pending:
+            self.close()
 
     def show_message(self, text: str) -> None:
         self.message.setText(text)
@@ -643,6 +727,9 @@ class MainWindow(QMainWindow):
     def scan_inventory(self) -> None:
         if self.worker and self.worker.isRunning():
             return
+        if self.search_dialog:
+            self.search_dialog.invalidate()
+        self.global_search_action.setEnabled(False)
         self.request_id += 1
         self.cancel_directory()
         self.location = None
@@ -673,6 +760,7 @@ class MainWindow(QMainWindow):
     def inventory_ready(self, inventory: DiskInventory) -> None:
         self.inventory = inventory
         self.address.setEnabled(True)
+        self.global_search_action.setEnabled(True)
         self.source = InventoryBrowserSource(inventory)
         self.partitions = {p.id: p for p in self.source.partitions()}
         old_model = self.partition_model
@@ -715,6 +803,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(self.block_reason)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.search_dialog and self.search_dialog.worker:
+            self.close_pending = True
+            self.search_dialog.cancel()
+            event.ignore()
+            return
         if self.preview_worker:
             self.close_pending = True
             self.cancel_preview()
