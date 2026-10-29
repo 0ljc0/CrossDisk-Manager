@@ -1,8 +1,11 @@
-"""仅将已扫描的元数据适配到现有界面，不提供真实文件浏览。"""
+"""将扫描身份映射到 Windows 只读根及待验证的 Linux 候选。"""
 
 from app.core.browser import Location, Partition
 from app.core.inventory import DiskInventory
 from app.backends.windows_native import NativeWindowsBackend, VOLUME_ROOT, validate_relative
+from app.backends.ext4_readonly import validate_path
+from app.services.disk_inventory import LINUX_DATA
+from dataclasses import asdict
 import hashlib
 import ntpath
 
@@ -12,17 +15,27 @@ class InventoryBrowserSource:
         self.inventory = inventory
         self.roots: dict[str, str] = {}
         self.network: dict[str, Partition] = {}
+        self.ext4: dict[str, dict] = {}
         for p in inventory.partitions:
             disk = next(d for d in inventory.disks if d.id == p.disk_id)
             if (p.category == "普通数据" and p.status == "只读" and not p.hidden and not disk.offline
                     and p.identity_stable and p.filesystem.upper() in ("NTFS", "FAT", "FAT32", "EXFAT")
                     and VOLUME_ROOT.fullmatch(p.volume_path)):
                 self.roots[p.id] = p.volume_path
+            elif (p.gpt_type == LINUX_DATA and p.guid and p.identity_stable and not disk.offline and not p.is_system
+                  and p.filesystem == "未识别"):
+                self.ext4[p.id] = dict(disk=asdict(disk), partition=asdict(p), fingerprint="")
 
     def partitions(self) -> tuple[Partition, ...]:
         return tuple(Partition(p.id, f"分区 {p.number} · {p.drive_letter + ':' if p.drive_letter else p.category}",
-                               p.filesystem, p.status, p.id in self.roots, False,
-                               "Windows 原生只读浏览，写入禁用" if p.id in self.roots else p.reason)
+                               "ext4" if self.ext4.get(p.id, {}).get("fingerprint") else
+                               "待验证" if p.id in self.ext4 else
+                               p.filesystem,
+                               ("只读" if self.ext4[p.id]["fingerprint"] else "待验证") if p.id in self.ext4 else p.status,
+                               p.id in self.roots or p.id in self.ext4, False,
+                               ("ext4 只读，禁止写入和跟随符号链接" if self.ext4[p.id]["fingerprint"] else
+                                "Linux 类型候选：单击时复核身份并探测 ext4，仅只读；LUKS/LVM 等不支持")
+                               if p.id in self.ext4 else "Windows 原生只读浏览，写入禁用" if p.id in self.roots else p.reason)
                      for p in self.inventory.partitions) + tuple(self.network.values())
 
     def list_directory(self, location: Location) -> tuple:
@@ -54,9 +67,9 @@ class InventoryBrowserSource:
                     validate_relative(relative)
                     return Location(p.id, relative)
         partition_id, separator, relative = address.partition(":/")
-        if separator and partition_id in self.roots:
+        if separator and (partition_id in self.roots or partition_id in self.ext4):
             relative = relative.rstrip("/")
-            validate_relative(relative)
+            (validate_path if partition_id in self.ext4 else validate_relative)(relative)
             return Location(partition_id, relative)
         raise ValueError("地址未对应到已验证的 Windows 卷，请扫描或输入普通 UNC 共享路径")
 

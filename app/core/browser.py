@@ -43,6 +43,7 @@ class DirectoryPage:
     entries: tuple[FileEntry, ...]
     next_offset: int | None
     fingerprint: str
+    source_info: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -51,10 +52,11 @@ class ReadOnlyCapabilities:
     stat: bool = True
     open_read: bool = True
     write: bool = False
+    read: bool = True
 
 
 class BrowserSource(Protocol):
-    """只提供列表查询；本阶段唯一实现为内存模拟数据。"""
+    """列表适配协议；真实 GUI 查询必须使用后台分页。"""
 
     def partitions(self) -> tuple[Partition, ...]: ...
 

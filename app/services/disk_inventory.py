@@ -143,7 +143,8 @@ def parse_inventory(payload: str) -> DiskInventory:
             partition = PartitionInfo(identifier, disk.id, disk.number, _number(raw, "PartitionNumber"),
                 guid, gpt_type, offset, size, hidden, letter, _text(volume.get("FileSystemLabel")),
                 filesystem, status, category, reason, _text(volume.get("Status")) or _text(raw.get("Status")), disk.identity_stable,
-                _text(volume.get("Path")) if _text(volume.get("Path")).startswith("\\\\?\\Volume{") else _text(volume.get("UniqueId")))
+                _text(volume.get("Path")) if _text(volume.get("Path")).startswith("\\\\?\\Volume{") else _text(volume.get("UniqueId")),
+                _flag(raw, "IsSystem"), _flag(raw, "IsBoot"))
             if any(p.id == identifier or (p.disk_id == disk.id and p.number == partition.number) for p in partitions):
                 raise ValueError("分区标识冲突")
             partitions.append(partition)

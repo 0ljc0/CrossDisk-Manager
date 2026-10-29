@@ -149,7 +149,7 @@ def test_inventory_binding_and_address_routing(sample):
     assert location.relative_path == "用户 资料"
     assert source.resolve_address(volume + "Users").partition_id == location.partition_id
     assert all(not p.writable for p in source.partitions())
-    assert sum(p.browsable for p in source.partitions()) == 1
+    assert sum(p.browsable for p in source.partitions()) == 2  # Windows 卷和需探测的 Linux 候选。
     unc = source.resolve_address(r"\\server\share\中文目录")
     assert unc.relative_path == "中文目录" and unc.partition_id.startswith("unc-")
     with pytest.raises(ValueError):

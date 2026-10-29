@@ -20,6 +20,7 @@ from app.backends.inventory_browser import InventoryBrowserSource
 from app.jobs.inventory_worker import InventoryWorker
 from app.jobs.directory_worker import DirectoryWorker
 from app.core.browser import DirectoryPage
+from app.backends.ext4_readonly import Ext4Error, validate_path
 
 
 class PropertyView(QPlainTextEdit):
@@ -68,8 +69,8 @@ class MainWindow(QMainWindow):
         self._build_views()
         self.set_theme(config.theme)
         if self.inventory_service is not None:
-            self.setWindowTitle("CrossDisk Manager · 跨分区文件管理器 · Windows 只读浏览")
-            self.safety_label.setText("Windows 文件浏览 · 全局只读")
+            self.setWindowTitle("CrossDisk Manager · 跨分区文件管理器 · 只读浏览")
+            self.safety_label.setText("Windows / ext4 · 全局只读")
             self.address.setToolTip("例如 C:\\Users、D:\\ 或普通 UNC 共享路径，回车打开")
             self.search.setPlaceholderText("筛选已加载的文件…")
             self.hidden_action.setText("显示隐藏文件")
@@ -141,7 +142,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.hidden_action)
         help_menu = self.menuBar().addMenu("帮助")
         self._action("关于演示", lambda: QMessageBox.information(
-            self, "关于", "CrossDisk Manager\n任务 04：Windows 原生只读浏览；--demo 可查看模拟界面。\n所有文件写入功能禁用。"), help_menu)
+            self, "关于", "CrossDisk Manager\n任务 05：Windows 与经过验证的 ext4 只读浏览。\nLinux 类型候选单击时核对身份及格式，权限不足时不自动提权。\n所有文件写入功能禁用。"), help_menu)
 
     def _build_views(self) -> None:
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -320,7 +321,12 @@ class MainWindow(QMainWindow):
         partition = self.partitions[self.location.partition_id]
         if self.inventory and partition.id not in getattr(self.source, "network", {}):
             p = next(p for p in self.inventory.partitions if p.id == partition.id)
-            self.properties.setText(f"磁盘 {p.disk_number} / 分区 {p.number}\n类别：{p.category}\n盘符：{p.drive_letter or '无'}\n卷标：{p.label or '无'}\n文件系统：{p.filesystem}\n状态：{p.status}\n卷状态：{p.volume_status or '不可用'}\n大小：{p.size:,} B ({p.size / 2**30:.2f} GiB)\n起始偏移：{p.offset:,} B\n隐藏：{p.hidden}\nGPT Type GUID：{p.gpt_type or '不可用'}\nPartition GUID：{p.guid or '不可用'}\n稳定标识：{p.id}\n身份可靠：{p.identity_stable}\n\n{partition.reason}")
+            spec = getattr(self.source, "ext4", {}).get(partition.id, {})
+            probe = spec.get("probe", {})
+            filesystem = probe.get("filesystem", p.filesystem)
+            label = probe.get("label", p.label)
+            status = partition.status if spec else p.status
+            self.properties.setText(f"磁盘 {p.disk_number} / 分区 {p.number}\n类别：{p.category}\n盘符：{p.drive_letter or '无'}\n卷标：{label or '无'}\n文件系统：{filesystem}\n状态：{status}\n卷状态：{p.volume_status or '不可用'}\n大小：{p.size:,} B ({p.size / 2**30:.2f} GiB)\n起始偏移：{p.offset:,} B\n隐藏：{p.hidden}\nGPT Type GUID：{p.gpt_type or '不可用'}\nPartition GUID：{p.guid or '不可用'}\n稳定标识：{p.id}\n身份可靠：{p.identity_stable}\n\n{partition.reason}")
             return
         self.properties.setText(f"{partition.name}\n\n文件系统：{partition.filesystem}\n能力：{partition.status}\n\n{partition.reason}\n\n写入禁用：{self.block_reason}\n\n仅模拟属性，未读取真实磁盘。")
 
@@ -329,11 +335,15 @@ class MainWindow(QMainWindow):
         if entry:
             note = (f"权限属性提示：读 {entry.readable} / 写 {entry.writable}\n实际访问仍由 Windows 权限决定，应用写入禁用。\n链接/重解析点：{entry.is_link}\n{entry.error}\n文件内容预览尚未接入。"
                     if self.inventory_service else "模拟属性，尚未接入文件内容预览。")
+            if isinstance(self.source, InventoryBrowserSource) and self.location.partition_id in self.source.ext4:
+                note = f"Unix 权限位提示：读 {entry.readable} / 写 {entry.writable}\n仅供参考，不能视为实际授权。\n后端只读，写入始终禁用。\n符号链接：{entry.is_link}\n{entry.error}\n文件内容预览尚未接入。"
             self.properties.setText(f"{entry.name}\n\n类型：{'链接（受限）' if entry.is_link else '文件夹' if entry.is_directory else '文件'}\n大小：{entry.size:,} B\n修改时间：{entry.modified}\n\n{note}\n\n写入禁用：{self.block_reason}")
 
     def open_entry(self, index) -> None:
         entry = index.data(Qt.ItemDataRole.UserRole)
-        if entry and entry.is_link:
+        if entry and entry.error:
+            self.statusBar().showMessage(entry.error)
+        elif entry and entry.is_link:
             self.statusBar().showMessage("链接和重解析点仅展示属性，禁止进入或读取，以防止越界和循环")
         elif entry and entry.is_directory:
             path = "/".join(filter(None, (self.location.relative_path, entry.name)))
@@ -345,12 +355,18 @@ class MainWindow(QMainWindow):
     def open_address(self) -> None:
         if isinstance(self.source, InventoryBrowserSource):
             try:
-                location = self.source.resolve_address(self.address.text().strip())
+                address = self.address.text().strip()
+                if address.startswith("/") and self.location and self.location.partition_id in self.source.ext4:
+                    relative = address[1:].rstrip("/")
+                    validate_path(relative)
+                    location = Location(self.location.partition_id, relative)
+                else:
+                    location = self.source.resolve_address(address)
                 self.partitions = {p.id: p for p in self.source.partitions()}
                 if location.partition_id in self.source.network:
                     self.partition_model.add_network(self.partitions[location.partition_id])
                 self.navigate(location)
-            except ValueError as exc:
+            except (ValueError, Ext4Error) as exc:
                 self.statusBar().showMessage(str(exc))
             return
         partition_id, separator, path = self.address.text().strip().partition(":/")
@@ -390,10 +406,13 @@ class MainWindow(QMainWindow):
         self.load_failed = False
         self.more_button.setEnabled(False)
         if not offset:
-            self.show_message("正在后台加载 Windows 目录…")
+            self.show_message("正在后台验证身份并只读加载目录…")
         self.pending_directory = dict(request_id=self.request_id, location=self.location,
-            root=self.source.roots[self.location.partition_id], show_hidden=self.config.show_hidden_files,
+            root=self.source.roots.get(self.location.partition_id, ""), show_hidden=self.config.show_hidden_files,
             offset=offset, fingerprint=self.fingerprint, parent=self)
+        if self.location.partition_id in self.source.ext4:
+            self.pending_directory["backend_spec"] = self.source.ext4[self.location.partition_id].copy()
+            self.pending_directory["timeout"] = 45
         if not self.directory_worker:
             self.launch_directory()
 
@@ -415,6 +434,14 @@ class MainWindow(QMainWindow):
         if request_id != self.request_id or self.close_pending:
             return
         self.loading = False
+        if page.source_info and isinstance(self.source, InventoryBrowserSource):
+            spec = self.source.ext4[self.location.partition_id]
+            spec["fingerprint"] = page.source_info["fingerprint"]
+            spec["probe"] = page.source_info
+            self.partitions = {p.id: p for p in self.source.partitions()}
+            self.show_partition()
+            self.properties.setText(self.properties.text() + f"\n\next4 UUID：{page.source_info['uuid']}\n卷标：{page.source_info['label']}\n只读探测通过；不提供任何写入接口。")
+            self.mark_partition_status(self.location.partition_id, "只读 ext4")
         self.fingerprint = page.fingerprint
         self.next_offset = page.next_offset
         self.file_model.append_entries(page.entries)
@@ -431,7 +458,7 @@ class MainWindow(QMainWindow):
         self.more_button.setVisible(False)
         self.show_message(message)
         self.statusBar().showMessage(message)
-        self.logger.error("Windows 只读目录查询失败")
+        self.logger.error("只读目录查询失败")
 
     def directory_finished(self) -> None:
         if self.directory_worker:
@@ -485,9 +512,20 @@ class MainWindow(QMainWindow):
         self.tree.selectionModel().currentChanged.connect(self.select_partition)
         old_model.deleteLater()
         self.tree.expandAll()
+        for partition_id in self.source.ext4:
+            self.mark_partition_status(partition_id, "待验证")
         self.statusBar().showMessage(f"发现 {len(inventory.disks)} 个磁盘、{len(inventory.partitions)} 个分区、{len(inventory.volumes)} 个卷")
         self.show_message("选择普通 Windows 分区只读浏览；受保护或未知分区仅展示元数据。" if inventory.disks else "未发现物理磁盘，设备可能已断开。可点击刷新重试。")
         self.logger.info("磁盘元数据扫描完成：%d 个磁盘，%d 个分区", len(inventory.disks), len(inventory.partitions))
+
+    def mark_partition_status(self, partition_id: str, status: str) -> None:
+        indexes = self.partition_model.match(self.partition_model.index(0, 0), Qt.ItemDataRole.UserRole,
+            partition_id, 1, Qt.MatchFlag.MatchExactly | Qt.MatchFlag.MatchRecursive)
+        if indexes:
+            index = indexes[0]
+            self.partition_model.setData(index.siblingAtColumn(1), status)
+            self.partition_model.setData(index.siblingAtColumn(1), self.partitions[partition_id].reason,
+                                         Qt.ItemDataRole.ToolTipRole)
 
     def inventory_failed(self, message: str) -> None:
         self.show_message(message + "\n点击刷新可重试。")

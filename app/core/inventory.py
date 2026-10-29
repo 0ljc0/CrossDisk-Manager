@@ -38,6 +38,8 @@ class PartitionInfo:
     volume_status: str
     identity_stable: bool
     volume_path: str = ""
+    is_system: bool = False
+    is_boot: bool = False
 
 
 @dataclass(frozen=True)

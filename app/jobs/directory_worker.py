@@ -17,12 +17,15 @@ class DirectoryWorker(QThread):
     failed = Signal(int, str)
 
     def __init__(self, request_id: int, location: Location, root: str, show_hidden: bool,
-                 offset: int = 0, fingerprint: str = "", parent=None, timeout: float = 15) -> None:
+                 offset: int = 0, fingerprint: str = "", parent=None, timeout: float = 15,
+                 backend_spec: dict | None = None) -> None:
         super().__init__(parent)
         self.request_id = request_id
         self.request = dict(partition_id=location.partition_id, root=root, relative_path=location.relative_path,
                             show_hidden=show_hidden, offset=offset, fingerprint=fingerprint)
         self.timeout = timeout
+        if backend_spec is not None:
+            self.request["backend_spec"] = backend_spec
 
     def run(self) -> None:
         process = None
@@ -53,12 +56,22 @@ class DirectoryWorker(QThread):
             else:
                 page = data["page"]
                 self.succeeded.emit(self.request_id, DirectoryPage(tuple(FileEntry(**e) for e in page["entries"]),
-                                     page["next_offset"], page["fingerprint"]))
+                                     page["next_offset"], page["fingerprint"], page.get("source_info")))
         except Exception:
             if not self.isInterruptionRequested():
                 self.failed.emit(self.request_id, "无法启动或解析只读目录查询，请重试。")
         finally:
             if process is not None:
                 if process.poll() is None:
-                    process.kill()
+                    # ext4 身份复核会再启动固定 PowerShell 查询；取消时一并回收本次进程树。
+                    if os.name == "nt" and hasattr(process, "pid"):
+                        try:
+                            executable = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32/taskkill.exe"
+                            subprocess.run([str(executable), "/PID", str(process.pid), "/T", "/F"],
+                                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=3,
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0), check=False)
+                        except (OSError, subprocess.TimeoutExpired):
+                            pass
+                    if process.poll() is None:
+                        process.kill()
                 process.communicate()

@@ -1,6 +1,6 @@
 # CrossDisk Manager
 
-面向 Windows 10/11 x64 的 Python + PySide6 跨分区文件管理器。目前完成任务 01～04：环境、中文三栏界面、磁盘清单与 Windows 原生只读浏览。
+面向 Windows 10/11 x64 的 Python + PySide6 跨分区文件管理器。任务 01～04 已验收；任务 05 的 ext4 只读接入及镜像验证已实现，真实 Ubuntu 分区人工验收待完成。
 
 ## 安装与运行
 
@@ -40,9 +40,9 @@ py -3.12 -m venv .venv
 | Windows 文件只读浏览与属性 | 已实现，按需分批加载 |
 | 文件内容预览与复制 | 后续任务 |
 | Windows 文件写入 | 后续任务，当前未实现 |
-| ext4 访问 | 尚未接入；写入保持禁用 |
+| ext4 访问 | 已实现只读后端，真实 pytsk3 镜像测试通过；实盘待人工验收 |
 
-应用不打开原始磁盘设备句柄；任务 03 通过 Windows Storage 查询元数据，不挂载分区、不分配盘符、不更改隐藏/离线标志、不读写原始扇区。pytsk3 延至任务 05。详细进度见 [docs/PROGRESS.md](docs/PROGRESS.md)。
+默认扫描通过 Windows Storage 查询元数据。用户明确选择 Linux 候选后，独立子进程才尝试以 pytsk3 只读打开当前设备，并重新验证身份与格式；绝不写原始扇区、不挂载系统盘、不分配盘符、不更改隐藏/离线标志或分区表。pytsk3 固定为本机验证版本 20260715。详细进度见 [docs/PROGRESS.md](docs/PROGRESS.md)。
 
 ## 任务 03 磁盘清单
 
@@ -50,7 +50,7 @@ py -3.12 -m venv .venv
 
 “重扫磁盘”重新扫描，旧清单立即失效；刷新/F5 仅刷新当前目录，未选目录时执行磁盘扫描。超时、权限不足、PowerShell 缺失或格式错误会明确报错，可重试；程序不会自动请求管理员权限。本机普通用户令牌已验证可以扫描。磁盘查询超时为 30 秒；扫描期间关闭窗口会等待查询结束或超时后退出，界面仍可响应。
 
-普通、已识别且稳定身份可用的 Windows 数据卷支持只读浏览。EFI、MSR、Recovery 依据 GPT Type GUID 分类，隐藏/系统分区优先保护，继续只显示元数据；Linux 数据类型不代表已确认 ext4。
+普通、已识别且稳定身份可用的 Windows 数据卷支持只读浏览。EFI、MSR、Recovery 和系统保护分区继续只显示元数据。已确认 GPT 身份的 Linux 数据类型可作为只读探测候选，隐藏标志不授予 Windows 文件访问或任何写入能力；Linux 数据类型不代表已确认 ext4。
 
 磁盘标识优先使用 GPT GUID，其次设备 UniqueId；分区标识结合磁盘身份、Partition GUID、偏移、大小、类型和文件系统，不依赖编号/盘符。没有稳定磁盘身份时使用仅本次扫描有效的标识并明确标记，重插或刷新后需要重新选择，不应持久复用操作目标。
 
@@ -84,6 +84,41 @@ py -3.12 -m venv .venv
 ```
 
 此验收脚本按本机任务环境检查 `C:\Users`、D 盘当前项目、既有 junction 和受限目录；不会写入这些目录，应用配置放在临时目录。
+
+## 任务 05 ext4 只读接入
+
+已阅读原始 `D:\谷歌浏览器\read_ubuntu_partition6.py` 并保持其不变。新实现位于 `app/backends/ext4_readonly.py`，不固定物理磁盘号、分区号、用户目录或容量。
+
+- 扫描仅将具有稳定磁盘/GPT 分区身份的 Linux 数据分区标记为“待验证”。明确单击后，子进程重新查询 Storage，对照磁盘 GUID/UniqueId、分区 GUID、大小、偏移、卷标、文件系统及系统标志。
+- 打开当前 `PhysicalDrive` 后，再校验 GPT 头与分区表 CRC、磁盘 GUID、分区 GUID/类型及字节范围，避免查询后编号复用。随后检查 ext4 超级块、状态、特征、UUID 和卷标，最后才构造 `FS_Info(..., offset=...)`。
+- 不处理 LUKS、LVM、未知格式、需日志恢复、不干净状态、加密、inline、casefold、bigalloc 等不兼容情况，不尝试恢复或解锁。只读不代表支持全部 ext4 特性。
+- 所有 pytsk3 文件系统读取受选定分区范围约束。`list_dir/stat/open_read/close` 支持分批目录、流式文件读取和资源释放；能力始终 `read=True, write=False`，源后端没有 write/rename/remove。
+- 符号链接仅展示本身属性，不跟随；非法 UTF-8 名称显示替代字符并禁止进入。未分配条目不当作正常文件，损坏 inode/短读明确报错。Unix 权限位仅作提示，不等同于授权或后端写入能力。
+- 探测成功后树显示“只读 ext4”；该分区选中时地址栏可输入 `/home`，或使用 `分区稳定标识:/home`。同一扫描会话保留 UUID/卷标/特征指纹，变化时拒绝继续读取，需要用户重新扫描选择。
+- ext4 查询同样在可取消子进程中执行，45 秒超时覆盖 Storage 身份复核；取消会回收本次查询进程树。Windows 目录仍为 15 秒，磁盘扫描仍为 30 秒。
+
+GUI 不自动提权。普通账户无法读取原始设备时会明确提示独立管理员读取进程方案；本阶段没有把管理员读取结果通过 IPC 回传普通 GUI 的代理服务。需要权限时，仅由用户明确打开管理员 PowerShell 运行下述独立工具，不以管理员身份启动整个 GUI。原始读取可能失败或格式不兼容，不能自动降级为盲读。
+
+纯镜像验收（无需管理员，不访问任何真实分区；使用项目内合成镜像生成器）：
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.capture_ext4_image_ui
+```
+
+真实分区只作人工验收。先列举当次稳定 ID，再替换下述占位值：
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.ext4_readonly --list-candidates
+.\.venv\Scripts\python.exe -m scripts.ext4_readonly --partition-id "替换为当次候选ID" --action ls --path /
+.\.venv\Scripts\python.exe -m scripts.ext4_readonly --partition-id "替换为当次候选ID" --action ls --path /home
+.\.venv\Scripts\python.exe -m scripts.ext4_readonly --partition-id "替换为当次候选ID" --action sample --path "/home/替换为用户名/替换为普通样本文本.txt"
+```
+
+`sample` 仅将选定普通文件流式导出到新建 Windows 临时文件（`xb`），核对字节数和 SHA-256 后自动清理；不输出文件内容、不覆盖已有文件。这是任务 05 的验收工具，GUI 的导出/复制队列仍未开发。
+
+`DirectoryPage` 增加可选 source_info，能力模型末尾增加默认 read 字段，`PartitionInfo` 末尾增加默认系统/启动标志，原参数位置保持兼容。目录 worker 增加可选 backend_spec；既有 Windows 查询方式不变。
+
+实现参考：[pytsk 项目与读取接口](https://github.com/py4n6/pytsk)、[Linux ext4 超级块规范](https://www.kernel.org/doc/html/latest/filesystems/ext4/super.html)。详细证据、限制与待验收项见 [docs/TASK05_VALIDATION.md](docs/TASK05_VALIDATION.md)。
 
 ## 任务 02 界面演示
 

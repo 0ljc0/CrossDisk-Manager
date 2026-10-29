@@ -38,6 +38,7 @@ def wait_scan(window):
 
 def test_background_scan_tree_properties_and_refresh(tmp_path, sample):
     application = QApplication.instance() or QApplication([])
+    sample["Partitions"][5]["Guid"] = None  # 元数据测试不触发真实设备探测。
     service = FakeService(parse(sample))
     window = MainWindow(AppConfig(), ConfigStore(tmp_path / "config.json"), logging.getLogger("ui"),
                         inventory_service=service)
