@@ -4,6 +4,33 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel
 
 from app.core.browser import FileEntry, Partition
+from app.core.inventory import DiskInventory
+
+
+DISK_ROLE = Qt.ItemDataRole.UserRole + 1
+
+
+class InventoryTreeModel(QStandardItemModel):
+    def __init__(self, inventory: DiskInventory, parent=None) -> None:
+        super().__init__(parent)
+        self.setHorizontalHeaderLabels(["物理磁盘 / 分区", "状态"])
+        for disk in inventory.disks:
+            root = QStandardItem(f"磁盘 {disk.number} · {disk.model} · {disk.size / 2**30:.2f} GiB")
+            state = QStandardItem("离线" if disk.offline else disk.status or "已发现")
+            for item in (root, state):
+                item.setEditable(False)
+                item.setData(disk.id, DISK_ROLE)
+                item.setToolTip(root.text())
+            for partition in (p for p in inventory.partitions if p.disk_id == disk.id):
+                letter = partition.drive_letter + ": · " if partition.drive_letter else ""
+                name = QStandardItem(f"分区 {partition.number} · {letter}{partition.category} · {partition.size / 2**30:.2f} GiB")
+                status = QStandardItem(partition.status)
+                for item in (name, status):
+                    item.setEditable(False)
+                    item.setData(partition.id, Qt.ItemDataRole.UserRole)
+                    item.setToolTip(f"{name.text()}\n{partition.filesystem}\n{partition.reason}")
+                root.appendRow([name, status])
+            self.appendRow([root, state])
 
 
 class PartitionModel(QStandardItemModel):

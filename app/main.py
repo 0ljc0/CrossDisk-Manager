@@ -1,6 +1,7 @@
 """从项目根目录执行 python -m app.main。"""
 
 import sys
+import argparse
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QApplication, QMessageBox
@@ -8,9 +9,13 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from app.core.config import ConfigStore
 from app.core.logging_setup import install_exception_hook, setup_logging
 from app.ui.main_window import MainWindow
+from app.services.disk_inventory import DiskInventoryService
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="CrossDisk Manager")
+    parser.add_argument("--demo", action="store_true", help="仅使用任务 02 的模拟数据")
+    args = parser.parse_args()
     application = QApplication(sys.argv)
     application.setApplicationName("CrossDisk Manager")
     try:
@@ -28,7 +33,8 @@ def main() -> int:
         return 1
     scheme = {"system": Qt.ColorScheme.Unknown, "light": Qt.ColorScheme.Light, "dark": Qt.ColorScheme.Dark}
     application.styleHints().setColorScheme(scheme[config.theme])
-    window = MainWindow(config, store, logger)
+    window = MainWindow(config, store, logger,
+                        inventory_service=None if args.demo else DiskInventoryService())
     window.show()
     logger.info("应用启动，安全模式：只读")
     return application.exec()

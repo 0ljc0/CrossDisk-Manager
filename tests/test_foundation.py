@@ -69,6 +69,7 @@ def test_module_entrypoint(tmp_path):
     # 使用真实 Windows Qt 平台和事件循环，仅将自动关闭计时器放入测试进程。
     script = '''
 import runpy
+import sys
 from PySide6.QtCore import QTimer
 from app.ui.main_window import MainWindow
 original_show = MainWindow.show
@@ -76,6 +77,7 @@ def show(self):
     original_show(self)
     QTimer.singleShot(150, self.close)
 MainWindow.show = show
+sys.argv = ["app.main", "--demo"]
 runpy.run_module("app.main", run_name="__main__")
 '''
     environment = dict(os.environ, LOCALAPPDATA=str(tmp_path))
