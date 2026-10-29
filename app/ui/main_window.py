@@ -1,6 +1,10 @@
 """统一虚拟路径、策略与后台导航的只读窗口。"""
 
 import logging
+from PySide6.QtWidgets import QFileDialog, QInputDialog
+from app.core.copy_job import CopyJob
+from app.ui.copy_dialog import CopyDialog
+from app.services.copy_service import check_target
 from dataclasses import replace
 
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QTextOption
@@ -57,6 +61,8 @@ class MainWindow(QMainWindow):
         self.logger = logger
         self.policy = CapabilityPolicy()
         self.search_dialog: SearchDialog | None = None
+        self.copy_dialog = CopyDialog(self)
+        self.copy_dialog.idle.connect(lambda: self.close() if self.close_pending else None)
         self.inventory_service = inventory_service
         self.inventory: DiskInventory | None = None
         self.worker: InventoryWorker | None = None
@@ -151,6 +157,8 @@ class MainWindow(QMainWindow):
         self.addToolBarBreak()
         operations = QToolBar("文件操作", self)
         operations.setMovable(False)
+        self.copy_action = self._action("复制/导出到 Windows…", self.export_selected, operations)
+        self.queue_action = self._action("任务队列", self.copy_dialog.show, operations)
         self.addToolBar(operations)
         self.write_actions = [self._action(name, self.explain_write_block, operations)
                               for name in ("新建", "重命名", "删除", "保存")]
@@ -437,6 +445,35 @@ class MainWindow(QMainWindow):
         self.search_dialog.close_pending = False
         self.search_dialog.showNormal()
         self.search_dialog.raise_()
+
+    def export_selected(self) -> None:
+        try:
+            if not isinstance(self.source, InventoryBrowserSource) or not self.location or self.loading:
+                raise ValueError("请在真实只读目录中选择文件或目录")
+            entry = self.table.currentIndex().data(Qt.ItemDataRole.UserRole)
+            if entry is None or entry.is_link is not False:
+                raise ValueError("请选择普通文件或目录，不导出链接")
+            sources, _ = self.build_search_sources(0)
+            if not sources:
+                raise ValueError("来源未验证或不可读")
+            request = dict(sources[0], relative_path=self.location.child(entry.name).path)
+            directory = QFileDialog.getExistingDirectory(self, "选择现有 Windows 数据目录（不覆盖既有文件）")
+            if not directory:
+                return
+            target_location = self.source.resolve_address(directory.replace("/", "\\"))
+            target = dict(partition_id=target_location.partition_id, relative_path=target_location.path,
+                          root=self.source.roots.get(target_location.partition_id, ""),
+                          backend_spec=self.source.request_spec(target_location.partition_id))
+            check_target(target)
+            conflict, ok = QInputDialog.getItem(self, "冲突策略", "遇到已存在的文件/目录：", ["跳过（默认）", "停止并报错"], 0, False)
+            if not ok:
+                return
+            if QMessageBox.question(self, "确认复制/导出", f"来源：{request['relative_path']}\n目标：{directory}\n仅新建文件；不保留时间戳和属性。继续？") != QMessageBox.StandardButton.Yes:
+                return
+            self.copy_dialog.stopping = False
+            self.copy_dialog.enqueue(CopyJob(request, target, "skip" if conflict.startswith("跳过") else "error"))
+        except (ValueError, OSError) as exc:
+            self.report_error(user_message(exc))
 
     def locate_search_result(self, result) -> None:
         if (not isinstance(self.source, InventoryBrowserSource) or result.partition_id not in self.partitions
@@ -803,6 +840,11 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(self.block_reason)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.copy_dialog.worker:
+            self.close_pending = True
+            self.copy_dialog.cancel()
+            event.ignore()
+            return
         if self.search_dialog and self.search_dialog.worker:
             self.close_pending = True
             self.search_dialog.cancel()
