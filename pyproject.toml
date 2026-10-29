@@ -1,0 +1,9 @@
+[project]
+name = "crossdisk-manager"
+version = "0.1.0"
+description = "安全的 Windows 跨分区文件管理器"
+requires-python = ">=3.11,<3.13"
+dynamic = ["dependencies"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
