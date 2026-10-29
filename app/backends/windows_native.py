@@ -71,15 +71,40 @@ def readable_error(exc: BaseException) -> str:
 
 
 class NativeWindowsBackend:
-    def __init__(self, partition_id: str, root: str) -> None:
+    def __init__(self, partition_id: str, root: str, *, write_context=None) -> None:
         self.partition_id = partition_id
         self.root = normalize_root(root)
+        self.write_context = write_context
+
+    def _write(self, operation, *args, **kwargs):
+        if self.write_context is None:
+            raise ValueError("未配置经验证的 Windows 写入目录，拒绝写入")
+        from app.services.windows_write import execute
+        return execute(self, operation, *args, **kwargs)
+
+    def create_dir(self, path):
+        return self._write("create_dir", path)
+
+    def create_file(self, path):
+        return self._write("create_file", path)
+
+    def rename(self, path, target):
+        return self._write("rename", path, target=target)
+
+    def move(self, path, target):
+        return self._write("move", path, target=target)
+
+    def delete(self, path, *, permanent=False, confirmed=False):
+        return self._write("delete", path, permanent=permanent, confirmed=confirmed)
+
+    def write_file(self, path, data, version):
+        return self._write("write_file", path, data=data, version=version)
 
     def get_capabilities(self) -> ReadOnlyCapabilities:
         return ReadOnlyCapabilities()
 
     @contextmanager
-    def _handle(self, path: str, read: bool = False):
+    def _handle(self, path: str, read: bool = False, *, share: int = 0x1 | 0x2):
         """OPEN_EXISTING；不授予写权限，不共享删除，固定组件防止重命名换位。"""
         if os.name != "nt":
             raise OSError("此后端仅支持 Windows")
@@ -92,7 +117,7 @@ class NativeWindowsBackend:
         close = kernel.CloseHandle
         close.argtypes = [wintypes.HANDLE]
         close.restype = wintypes.BOOL
-        handle = create(path, 0x80000000 if read else 0x80, 0x1 | 0x2, None, 3,
+        handle = create(path, 0x80000000 if read else 0x80, share, None, 3,
                         0x02000000 | 0x00200000, None)
         if handle == ctypes.c_void_p(-1).value:
             raise ctypes.WinError(ctypes.get_last_error())

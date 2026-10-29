@@ -34,6 +34,9 @@ from app.ui.preview_panel import PreviewPanel
 from app.core.search import SearchQuery
 from app.ui.search_models import FileFilterProxy
 from app.ui.search_dialog import SearchDialog
+from app.ui.write_dialog import WriteDialog
+from app.services.windows_write import WriteContext
+from app.backends.windows_native import NativeWindowsBackend
 
 
 class PropertyView(QPlainTextEdit):
@@ -61,6 +64,7 @@ class MainWindow(QMainWindow):
         self.logger = logger
         self.policy = CapabilityPolicy()
         self.search_dialog: SearchDialog | None = None
+        self.write_dialogs = []
         self.copy_dialog = CopyDialog(self)
         self.copy_dialog.idle.connect(lambda: self.close() if self.close_pending else None)
         self.inventory_service = inventory_service
@@ -157,6 +161,8 @@ class MainWindow(QMainWindow):
         self.addToolBarBreak()
         operations = QToolBar("文件操作", self)
         operations.setMovable(False)
+        self.windows_write_action = self._action("配置 Windows 写入目录…", self.configure_windows_write, operations)
+        self.windows_write_action.setEnabled(False)
         self.copy_action = self._action("复制/导出到 Windows…", self.export_selected, operations)
         self.queue_action = self._action("任务队列", self.copy_dialog.show, operations)
         self.addToolBar(operations)
@@ -332,6 +338,13 @@ class MainWindow(QMainWindow):
         decision = (self.source.decision(location.partition_id) if isinstance(self.source, InventoryBrowserSource) else
                     self.policy.evaluate(partition, ReadOnlyCapabilities if partition.browsable else None, "模拟"))
         self.block_reason = decision.reason
+        try:
+            metadata = self.source.metadata(location.partition_id) if isinstance(self.source, InventoryBrowserSource) else None
+            disk = next(d for d in self.inventory.disks if d.id == metadata.disk_id) if metadata else None
+            self.policy.require_windows_write(metadata, disk)
+            self.windows_write_action.setEnabled(True)
+        except (ValueError, AttributeError, StopIteration):
+            self.windows_write_action.setEnabled(False)
         for action in self.write_actions:
             action.setEnabled(decision.write)
             action.setToolTip(self.block_reason)
@@ -445,6 +458,29 @@ class MainWindow(QMainWindow):
         self.search_dialog.close_pending = False
         self.search_dialog.showNormal()
         self.search_dialog.raise_()
+
+    def configure_windows_write(self):
+        try:
+            if not isinstance(self.source, InventoryBrowserSource) or not self.location:
+                raise ValueError("请先选择普通 Windows 数据卷")
+            partition = self.source.metadata(self.location.partition_id)
+            disk = next(d for d in self.inventory.disks if d.id == partition.disk_id)
+            self.policy.require_windows_write(partition, disk)
+            directory = QFileDialog.getExistingDirectory(self, "选择允许写入的现有 Windows 数据目录")
+            if not directory:
+                return
+            location = self.source.resolve_address(directory.replace('/', '\\'))
+            if location.partition_id != partition.id or not location.path:
+                raise ValueError("目录必须位于当前普通数据卷，不能使用卷根")
+            if QMessageBox.question(self, "启用受限写入", f"允许在 {directory} 内新建、编辑、移动和删除子项？\n不提供通用撤销；ext4 仍禁止写入。") != QMessageBox.StandardButton.Yes:
+                return
+            backend = NativeWindowsBackend(partition.id, partition.volume_path,
+                write_context=WriteContext(partition, disk, location.path))
+            dialog = WriteDialog(backend, self)
+            self.write_dialogs.append(dialog)
+            dialog.show()
+        except (ValueError, OSError, StopIteration) as exc:
+            self.report_error(user_message(exc))
 
     def export_selected(self) -> None:
         try:
@@ -762,6 +798,7 @@ class MainWindow(QMainWindow):
             self.launch_directory()
 
     def scan_inventory(self) -> None:
+        self.windows_write_action.setEnabled(False)
         if self.worker and self.worker.isRunning():
             return
         if self.search_dialog:
@@ -840,6 +877,14 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(self.block_reason)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if any(dialog.worker for dialog in self.write_dialogs):
+            self.statusBar().showMessage("正在写入，请等待任务完成后关闭")
+            event.ignore()
+            return
+        for dialog in self.write_dialogs:
+            if dialog.isVisible() and not dialog.close():
+                event.ignore()
+                return
         if self.copy_dialog.worker:
             self.close_pending = True
             self.copy_dialog.cancel()

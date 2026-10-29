@@ -16,6 +16,18 @@ class AccessDecision:
 
 
 class CapabilityPolicy:
+    def require_windows_write(self, partition, disk) -> None:
+        decision = self.evaluate(partition, ReadOnlyCapabilities, "Windows")
+        if (not decision.browse or getattr(partition, "category", "") != "普通数据"
+                or not getattr(partition, "identity_stable", False)
+                or not getattr(partition, "volume_path", "")
+                or getattr(partition, "is_boot", False)
+                or getattr(partition, "status", "") != "只读"
+                or getattr(partition, "volume_status", "").lower() not in ("ok", "healthy")
+                or disk.offline or disk.read_only or not disk.identity_stable
+                or partition.filesystem not in ("NTFS", "FAT", "FAT32", "exFAT", "EXFAT")):
+            raise ValueError("仅允许在线、未锁定、身份可靠的普通 Windows 数据卷写入")
+
     def evaluate(self, partition, capabilities: ReadOnlyCapabilities | Callable | None,
                  backend: str = "") -> AccessDecision:
         gpt = getattr(partition, "gpt_type", "").strip("{}").lower()
