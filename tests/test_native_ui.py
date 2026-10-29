@@ -37,7 +37,7 @@ def test_async_paging_navigation_error_and_hidden(tmp_path, sample):
                         inventory_service=FakeService(parse(sample)))
     window.show()
     wait_scan(window)
-    partition_id = next(iter(window.partitions))
+    partition_id = window.inventory.partitions[2].id  # 普通数据分区，不能伪造 EFI 的 browsable 标志。
     # 用可丢弃目录替换根，测试 GUI 与真实子进程，不接触任何原始磁盘。
     window.source.roots[partition_id] = str(folder)
     from dataclasses import replace
@@ -113,7 +113,9 @@ def test_query_maps_denied_and_locked_errors(monkeypatch, capsys):
     import io
     from app.jobs import native_query
     request = dict(partition_id="test", root="C:\\", relative_path="", offset=0,
-                   show_hidden=False, fingerprint="")
+                   show_hidden=False, fingerprint="", backend_spec=dict(kind="Windows", partition=dict(
+                       id="test", name="test", filesystem="NTFS", status="只读", browsable=True,
+                       writable=False, reason="test", category="普通数据")))
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
     monkeypatch.setattr("app.jobs.native_query.NativeWindowsBackend.list_dir",
                         lambda *a, **kw: (_ for _ in ()).throw(PermissionError("私密路径")))

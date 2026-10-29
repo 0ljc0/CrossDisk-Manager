@@ -62,7 +62,7 @@ class PartitionModel(QStandardItemModel):
 
 
 class FileTableModel(QAbstractTableModel):
-    headers = ("名称", "类型", "大小", "修改时间", "权限提示")
+    headers = ("名称", "类型", "大小", "修改时间", "权限提示", "访问状态", "后端来源")
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -98,13 +98,19 @@ class FileTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.UserRole:
             return entry
         if role == Qt.ItemDataRole.ToolTipRole:
-            return entry.name + ("\n" + entry.error if entry.error else "") + "\n权限仅是属性提示，实际读取仍由 Windows ACL 决定"
+            return entry.name + ("\n" + entry.error if entry.error else "") + f"\n链接状态：{self.permission(entry.is_link)}\n权限仅是属性提示，不代表实际授权"
         if role == Qt.ItemDataRole.DecorationRole and index.column() == 0:
             icon = (QStyle.StandardPixmap.SP_FileLinkIcon if entry.is_link else
                     QStyle.StandardPixmap.SP_DirIcon if entry.is_directory else QStyle.StandardPixmap.SP_FileIcon)
             return QApplication.style().standardIcon(icon)
         if role == Qt.ItemDataRole.DisplayRole:
-            return (entry.name, "链接（受限）" if entry.is_link else "文件夹" if entry.is_directory else "文件",
-                    "—" if entry.is_directory or entry.error else f"{entry.size:,} B", entry.modified,
-                    entry.error or f"读：{'是' if entry.readable else '未知'} / 写：{'是' if entry.writable else '否或未知'}")[index.column()]
+            kind = "链接（受限）" if entry.is_link else "未知" if entry.is_directory is None else "文件夹" if entry.is_directory else "文件"
+            return (entry.name, kind,
+                    "未知" if entry.size is None else "—" if entry.is_directory else f"{entry.size:,} B", entry.modified or "未知",
+                    f"读：{self.permission(entry.readable)} / 写：{self.permission(entry.writable)}",
+                    entry.access_status, entry.backend_source)[index.column()]
         return None
+
+    @staticmethod
+    def permission(value: bool | None) -> str:
+        return "未知" if value is None else "是" if value else "否"

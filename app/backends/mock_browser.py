@@ -1,11 +1,12 @@
 """纯内存演示数据；不调用真实文件系统、管理员或磁盘 API。"""
 
 from app.core.browser import FileEntry, Location, Partition
+from dataclasses import replace
 
 
 class MockBrowserSource:
     def partitions(self) -> tuple[Partition, ...]:
-        return (
+        partitions = (
             Partition("mock-c", "C: · Windows", "NTFS", "可读写", True, True, "模拟卷支持读写；全局安全模式仍为只读"),
             Partition("mock-d", "D: · 数据", "NTFS", "可读写", True, True, "模拟卷支持读写；全局安全模式仍为只读"),
             Partition("mock-ubuntu", "Ubuntu", "ext4", "只读", True, False, "ext4 未经过独立写入验证，仅允许只读"),
@@ -15,6 +16,8 @@ class MockBrowserSource:
             Partition("mock-admin", "权限演示卷", "ext4", "需要管理员", False, False, "当前无访问权限；演示模式不会请求提权"),
             Partition("mock-unknown", "未知演示卷", "未知", "不可识别", False, False, "文件系统不可识别，不可浏览"),
         )
+        categories = {"mock-efi": "EFI", "mock-recovery": "Recovery", "mock-msr": "MSR", "mock-unknown": "未知类型"}
+        return tuple(replace(p, category=categories.get(p.id, "普通数据"), backend_name="模拟") for p in partitions)
 
     def list_directory(self, location: Location) -> tuple[FileEntry, ...]:
         partition = next((p for p in self.partitions() if p.id == location.partition_id), None)
@@ -36,4 +39,4 @@ class MockBrowserSource:
         key = (location.partition_id, location.relative_path)
         if key not in tree:
             raise FileNotFoundError("模拟目录不存在，请选择列表中的目录")
-        return tree[key]
+        return tuple(replace(e, backend_source="模拟", access_status="模拟", modified="2026-10-29 10:00") for e in tree[key])

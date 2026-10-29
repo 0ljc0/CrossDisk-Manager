@@ -1,4 +1,4 @@
-"""任务 02 三栏演示窗口；数据仅来自模拟查询接口。"""
+"""统一虚拟路径、策略与后台导航的只读窗口。"""
 
 import logging
 from dataclasses import replace
@@ -6,7 +6,7 @@ from dataclasses import replace
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QTextOption
 from PySide6.QtWidgets import (QApplication, QHeaderView, QLabel, QLineEdit, QMainWindow, QPlainTextEdit,
                                QMessageBox, QPushButton, QSplitter, QStackedWidget, QTableView,
-                               QToolBar, QTreeView, QVBoxLayout, QWidget)
+                               QToolBar, QToolButton, QTreeView, QVBoxLayout, QHBoxLayout, QScrollArea, QWidget)
 from PySide6.QtCore import QSortFilterProxyModel, QTimer, Qt
 
 from app.core.config import AppConfig, ConfigStore
@@ -21,6 +21,9 @@ from app.jobs.inventory_worker import InventoryWorker
 from app.jobs.directory_worker import DirectoryWorker
 from app.core.browser import DirectoryPage
 from app.backends.ext4_readonly import Ext4Error, validate_path
+from app.core.capability_policy import CapabilityPolicy
+from app.core.browser import ReadOnlyCapabilities
+from app.services.messages import user_message
 
 
 class PropertyView(QPlainTextEdit):
@@ -46,6 +49,7 @@ class MainWindow(QMainWindow):
         self.config = config
         self.store = store
         self.logger = logger
+        self.policy = CapabilityPolicy()
         self.inventory_service = inventory_service
         self.inventory: DiskInventory | None = None
         self.worker: InventoryWorker | None = None
@@ -167,10 +171,13 @@ class MainWindow(QMainWindow):
         self.table.setSortingEnabled(True)
         self.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
         self.table.setTextElideMode(Qt.TextElideMode.ElideMiddle)
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(0, 240)
         self.table.setColumnWidth(2, 85)
         self.table.setColumnWidth(3, 160)
         self.table.setColumnWidth(4, 145)
+        self.table.setColumnWidth(5, 120)
+        self.table.setColumnWidth(6, 90)
         self.table.doubleClicked.connect(self.open_entry)
         self.table.selectionModel().currentChanged.connect(self.show_entry)
         self.message = QLabel()
@@ -184,6 +191,16 @@ class MainWindow(QMainWindow):
         self.path_label = QLabel()
         self.path_label.setWordWrap(True)
         layout.addWidget(self.path_label)
+        self.breadcrumb_buttons: list[QToolButton] = []
+        self.breadcrumb_widget = QWidget()
+        self.breadcrumb_layout = QHBoxLayout(self.breadcrumb_widget)
+        self.breadcrumb_layout.setContentsMargins(0, 0, 0, 0)
+        breadcrumb_scroll = QScrollArea()
+        breadcrumb_scroll.setWidgetResizable(True)
+        breadcrumb_scroll.setWidget(self.breadcrumb_widget)
+        breadcrumb_scroll.setFixedHeight(42)
+        breadcrumb_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        layout.addWidget(breadcrumb_scroll)
         layout.addWidget(self.pages)
         self.more_button = QPushButton("加载下一批（最多 200 项）")
         self.more_button.setVisible(False)
@@ -224,15 +241,28 @@ class MainWindow(QMainWindow):
             self.request_id += 1
             self.cancel_directory()
             self.location = None
+            self.loading, self.load_failed = False, True
+            self.update_breadcrumbs()
+            self.up_action.setEnabled(False)
             self.address.clear()
             self.file_model.set_entries(())
             self.show_message("请选择普通 Windows 分区进行只读浏览；受保护分区仅展示元数据。")
             self.properties.setText(f"磁盘 {disk.number}\n型号：{disk.model}\n容量：{disk.size:,} B ({disk.size / 2**30:.2f} GiB)\n分区表：{disk.partition_style}\n状态：{disk.status}\n离线：{disk.offline}\n只读：{disk.read_only}\nGPT GUID：{disk.guid or '不可用'}\n稳定标识：{disk.id}\n身份可靠：{disk.identity_stable}")
 
     def navigate(self, location: Location, record: bool = True) -> None:
-        if location.partition_id not in self.partitions:
-            self.statusBar().showMessage("未知模拟分区，请检查地址")
+        try:
+            location = Location(location.partition_id, location.relative_path)
+        except ValueError as exc:
+            self.report_error(user_message(exc))
             return
+        if location.partition_id not in self.partitions:
+            self.report_error("未知分区或设备已失效，请重新扫描")
+            return
+        # 在地址/搜索/选择变化触发其他信号之前，先令旧结果失效并清空旧列表。
+        self.request_id += 1
+        self.cancel_directory()
+        self.loading, self.load_failed = True, False
+        self.file_model.set_entries(())
         self.location = location
         if record and (self.history_index < 0 or self.history[self.history_index] != location):
             self.history = self.history[:self.history_index + 1] + [location]
@@ -242,6 +272,7 @@ class MainWindow(QMainWindow):
         self.search.clear()
         self.path_label.setText(address)
         self.path_label.setTextFormat(Qt.TextFormat.PlainText)
+        self.update_breadcrumbs()
         indexes = self.partition_model.match(self.partition_model.index(0, 0), Qt.ItemDataRole.UserRole,
             location.partition_id, 1, Qt.MatchFlag.MatchExactly | Qt.MatchFlag.MatchRecursive)
         if indexes:
@@ -252,24 +283,22 @@ class MainWindow(QMainWindow):
         self.forward_action.setEnabled(self.history_index < len(self.history) - 1)
         self.up_action.setEnabled(bool(location.relative_path))
         partition = self.partitions[location.partition_id]
-        self.block_reason = (partition.reason if not partition.writable else "全局安全模式为只读；任务 02 尚未实现写入操作")
+        decision = (self.source.decision(location.partition_id) if isinstance(self.source, InventoryBrowserSource) else
+                    self.policy.evaluate(partition, ReadOnlyCapabilities if partition.browsable else None, "模拟"))
+        self.block_reason = decision.reason
         for action in self.write_actions:
-            action.setEnabled(False)
+            action.setEnabled(decision.write)
             action.setToolTip(self.block_reason)
             action.setStatusTip(self.block_reason)
         self.show_partition()
-        if self.inventory_service is not None:
-            self.request_id += 1
-            self.cancel_directory()
-            self.file_model.set_entries(())
-            if partition.browsable:
-                self.start_directory()
-            else:
-                self.load_failed = True
-                self.show_message(partition.reason)
-                self.statusBar().showMessage("磁盘元数据 · " + partition.reason)
+        if not decision.browse:
+            self.loading, self.load_failed = False, True
+            self.show_message(f"{partition.status}\n{decision.reason}")
+            self.statusBar().showMessage(decision.reason)
             return
-        self.request_id += 1
+        if self.inventory_service is not None:
+            self.start_directory()
+            return
         request_id = self.request_id
         self.loading = True
         self.load_failed = False
@@ -278,6 +307,23 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("正在加载模拟数据…")
         # 仅延迟展示内存数据，便于观察加载状态；未来真实 I/O 必须移入异步任务。
         QTimer.singleShot(80, lambda: self.finish_load(request_id, location))
+
+    def update_breadcrumbs(self) -> None:
+        while self.breadcrumb_layout.count():
+            item = self.breadcrumb_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.breadcrumb_buttons = []
+        if self.location:
+            for path in self.location.breadcrumbs():
+                button = QToolButton()
+                button.setText(self.partitions[path.partition_id].name if not path.path else path.path.rsplit("/", 1)[-1])
+                button.setToolTip(path.address)
+                button.setMaximumWidth(260)
+                button.clicked.connect(lambda checked=False, target=path: self.navigate(target))
+                self.breadcrumb_layout.addWidget(button)
+                self.breadcrumb_buttons.append(button)
+        self.breadcrumb_layout.addStretch()
 
     def finish_load(self, request_id: int, location: Location) -> None:
         if request_id != self.request_id:
@@ -291,10 +337,8 @@ class MainWindow(QMainWindow):
             return
         try:
             entries = self.source.list_directory(location)
-        except (PermissionError, FileNotFoundError) as exc:
-            self.load_failed = True
-            self.show_message(str(exc))
-            self.statusBar().showMessage("无法打开模拟目录")
+        except (OSError, ValueError) as exc:
+            self.report_error(user_message(exc))
             return
         self.file_model.set_entries(tuple(e for e in entries if self.config.show_hidden_files or not e.hidden))
         self.filter_entries(self.search.text())
@@ -333,21 +377,25 @@ class MainWindow(QMainWindow):
     def show_entry(self, index, previous=None) -> None:
         entry = index.data(Qt.ItemDataRole.UserRole)
         if entry:
-            note = (f"权限属性提示：读 {entry.readable} / 写 {entry.writable}\n实际访问仍由 Windows 权限决定，应用写入禁用。\n链接/重解析点：{entry.is_link}\n{entry.error}\n文件内容预览尚未接入。"
+            readable, writable, link = (FileTableModel.permission(v) for v in (entry.readable, entry.writable, entry.is_link))
+            note = (f"权限属性提示：读 {readable} / 写 {writable}\n实际访问仍由 Windows 权限决定，应用写入禁用。\n链接/重解析点：{link}\n{entry.error}\n文件内容预览尚未接入。"
                     if self.inventory_service else "模拟属性，尚未接入文件内容预览。")
             if isinstance(self.source, InventoryBrowserSource) and self.location.partition_id in self.source.ext4:
-                note = f"Unix 权限位提示：读 {entry.readable} / 写 {entry.writable}\n仅供参考，不能视为实际授权。\n后端只读，写入始终禁用。\n符号链接：{entry.is_link}\n{entry.error}\n文件内容预览尚未接入。"
-            self.properties.setText(f"{entry.name}\n\n类型：{'链接（受限）' if entry.is_link else '文件夹' if entry.is_directory else '文件'}\n大小：{entry.size:,} B\n修改时间：{entry.modified}\n\n{note}\n\n写入禁用：{self.block_reason}")
+                note = f"Unix 权限位提示：读 {readable} / 写 {writable}\n仅供参考，不能视为实际授权。\n后端只读，写入始终禁用。\n符号链接：{link}\n{entry.error}\n文件内容预览尚未接入。"
+            size = "未知" if entry.size is None else f"{entry.size:,} B"
+            self.properties.setText(f"{entry.name}\n\n类型：{'链接（受限）' if entry.is_link else '未知' if entry.is_directory is None else '文件夹' if entry.is_directory else '文件'}\n大小：{size}\n修改时间：{entry.modified or '未知'}\n访问状态：{entry.access_status}\n后端来源：{entry.backend_source}\n\n{note}\n\n写入禁用：{self.block_reason}")
 
     def open_entry(self, index) -> None:
         entry = index.data(Qt.ItemDataRole.UserRole)
-        if entry and entry.error:
-            self.statusBar().showMessage(entry.error)
-        elif entry and entry.is_link:
-            self.statusBar().showMessage("链接和重解析点仅展示属性，禁止进入或读取，以防止越界和循环")
+        backend = entry.backend_source if entry else ""
+        reason = self.policy.entry_reason(entry, backend) if entry else ""
+        if reason:
+            self.report_error(reason)
         elif entry and entry.is_directory:
-            path = "/".join(filter(None, (self.location.relative_path, entry.name)))
-            self.navigate(Location(self.location.partition_id, path))
+            try:
+                self.navigate(self.location.child(entry.name))
+            except ValueError as exc:
+                self.report_error(user_message(exc))
         elif entry:
             self.show_entry(index)
             self.statusBar().showMessage("已显示文件属性，内容预览将在后续任务接入")
@@ -367,13 +415,16 @@ class MainWindow(QMainWindow):
                     self.partition_model.add_network(self.partitions[location.partition_id])
                 self.navigate(location)
             except (ValueError, Ext4Error) as exc:
-                self.statusBar().showMessage(str(exc))
+                self.report_error(user_message(exc))
             return
         partition_id, separator, path = self.address.text().strip().partition(":/")
         if not separator or "\\" in path or any(p in (".", "..", "") for p in path.split("/") if path):
-            self.statusBar().showMessage("地址格式无效，请使用 mock-c:/用户文档 形式")
+            self.report_error("地址格式无效，请使用 mock-c:/用户文档 形式")
             return
-        self.navigate(Location(partition_id, path))
+        try:
+            self.navigate(Location(partition_id, path))
+        except ValueError as exc:
+            self.report_error(user_message(exc))
 
     def move_history(self, delta: int) -> None:
         target = self.history_index + delta
@@ -383,7 +434,7 @@ class MainWindow(QMainWindow):
 
     def go_up(self) -> None:
         if self.location and self.location.relative_path:
-            self.navigate(Location(self.location.partition_id, self.location.relative_path.rpartition("/")[0]))
+            self.navigate(self.location.parent)
 
     def refresh(self) -> None:
         if self.location:
@@ -410,8 +461,12 @@ class MainWindow(QMainWindow):
         self.pending_directory = dict(request_id=self.request_id, location=self.location,
             root=self.source.roots.get(self.location.partition_id, ""), show_hidden=self.config.show_hidden_files,
             offset=offset, fingerprint=self.fingerprint, parent=self)
+        try:
+            self.pending_directory["backend_spec"] = self.source.request_spec(self.location.partition_id)
+        except ValueError as exc:
+            self.report_error(user_message(exc))
+            return
         if self.location.partition_id in self.source.ext4:
-            self.pending_directory["backend_spec"] = self.source.ext4[self.location.partition_id].copy()
             self.pending_directory["timeout"] = 45
         if not self.directory_worker:
             self.launch_directory()
@@ -452,13 +507,15 @@ class MainWindow(QMainWindow):
     def directory_failed(self, request_id: int, message: str) -> None:
         if request_id != self.request_id or self.close_pending:
             return
-        self.loading = False
-        self.load_failed = True
-        self.next_offset = None
-        self.more_button.setVisible(False)
+        self.report_error(message)
+
+    def report_error(self, message: str) -> None:
+        self.request_id += 1
+        self.cancel_directory()
+        self.loading, self.load_failed = False, True
         self.show_message(message)
         self.statusBar().showMessage(message)
-        self.logger.error("只读目录查询失败")
+        self.logger.error("只读导航操作未完成")
 
     def directory_finished(self) -> None:
         if self.directory_worker:
@@ -475,6 +532,7 @@ class MainWindow(QMainWindow):
         self.request_id += 1
         self.cancel_directory()
         self.location = None
+        self.update_breadcrumbs()
         self.inventory = None
         self.partitions = {}
         self.source = InventoryBrowserSource(DiskInventory((), (), ()))
@@ -528,9 +586,7 @@ class MainWindow(QMainWindow):
                                          Qt.ItemDataRole.ToolTipRole)
 
     def inventory_failed(self, message: str) -> None:
-        self.show_message(message + "\n点击刷新可重试。")
-        self.statusBar().showMessage(message)
-        self.logger.error("磁盘元数据扫描失败")
+        self.report_error(message + "\n点击刷新可重试。")
 
     def scan_finished(self) -> None:
         if self.worker:

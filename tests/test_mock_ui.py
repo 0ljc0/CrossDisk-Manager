@@ -67,9 +67,10 @@ def test_capabilities_disable_writes(window, partition_id):
     assert partition.status in window.properties.text()
     if not partition.browsable:
         assert window.pages.currentWidget() == window.message
-        assert partition.reason in window.message.text()
+        reason = window.block_reason
+        assert reason in window.message.text()
         window.search.setText("x")
-        assert partition.reason in window.message.text()
+        assert reason in window.message.text()
 
 
 def test_empty_filter_hidden_refresh_and_address(window):
@@ -94,7 +95,7 @@ def test_empty_filter_hidden_refresh_and_address(window):
     window.address.setText("mock-c:/不存在")
     window.address.returnPressed.emit()
     wait_load()
-    assert "目录不存在" in window.message.text()
+    assert "路径不存在" in window.message.text()
 
 
 def test_rapid_navigation_ignores_stale_load(window):
@@ -102,7 +103,7 @@ def test_rapid_navigation_ignores_stale_load(window):
     window.navigate(Location("mock-efi"))
     wait_load()
     assert window.file_model.rowCount() == 0
-    assert "系统引导分区" in window.message.text()
+    assert "EFI 引导分区" in window.message.text()
 
 
 def test_theme_geometry_restore(window):

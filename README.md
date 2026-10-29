@@ -1,6 +1,6 @@
 # CrossDisk Manager
 
-面向 Windows 10/11 x64 的 Python + PySide6 跨分区文件管理器。任务 01～04 已验收；任务 05 的 ext4 只读接入及镜像验证已实现，真实 Ubuntu 分区人工验收待完成。
+面向 Windows 10/11 x64 的 Python + PySide6 跨分区文件管理器。已实现任务 01～06 的环境、只读后端及统一导航；真实 Ubuntu 分区人工验收仍待完成，当前 ext4 证据来自真实 pytsk3 镜像测试。
 
 ## 安装与运行
 
@@ -38,6 +38,7 @@ py -3.12 -m venv .venv
 | 用户配置、轮转日志、未处理异常提示 | 已实现 |
 | 磁盘、分区、Windows 卷元数据识别 | 已实现，后台只读查询 |
 | Windows 文件只读浏览与属性 | 已实现，按需分批加载 |
+| 统一路径、面包屑、跨后端历史与能力策略 | 已实现；保护分类优先，写入始终禁用 |
 | 文件内容预览与复制 | 后续任务 |
 | Windows 文件写入 | 后续任务，当前未实现 |
 | ext4 访问 | 已实现只读后端，真实 pytsk3 镜像测试通过；实盘待人工验收 |
@@ -75,7 +76,7 @@ py -3.12 -m venv .venv
 - 超长路径使用 Windows 扩展路径；拒绝 `..`、备用数据流、保留设备名等。目录组件由只读属性句柄固定，不允许在本次读取期间重命名替换。文件内容读取 API 仅暴露 `rb` 流。
 - 文件表提供通用文件/目录/链接图标、大小、修改时间、读写属性提示。权限提示并非 ACL 授权判断，实际读取仍可能被 Windows 拒绝；应用始终禁用写入。
 
-后端接口为 `NativeWindowsBackend.list_dir/stat/open_read/get_capabilities`；分页结果为 `DirectoryPage`。`FileEntry` 新增带默认值的链接/权限/错误字段，`PartitionInfo` 新增默认空值的卷路径，原构造参数保持兼容。GUI 通过后台分页加载；旧 `list_directory` 同步适配接口仅返回首批，不能用于完整目录遍历或 GUI 主线程。
+后端接口为 `NativeWindowsBackend.list_dir/stat/open_read/get_capabilities`；分页结果为 `DirectoryPage`。GUI 通过后台分页加载；旧 `list_directory` 同步适配接口仅返回首批，并经过统一后端工厂与策略检查，不能用于完整目录遍历或 GUI 主线程。任务 06 的字段兼容性说明见下文。
 
 只读实现参考：[Python scandir](https://docs.python.org/3.12/library/os.html#os.scandir)、[Windows CreateFile](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)。本机结果见 [docs/TASK04_VALIDATION.md](docs/TASK04_VALIDATION.md)。
 
@@ -119,6 +120,23 @@ GUI 不自动提权。普通账户无法读取原始设备时会明确提示独�
 `DirectoryPage` 增加可选 source_info，能力模型末尾增加默认 read 字段，`PartitionInfo` 末尾增加默认系统/启动标志，原参数位置保持兼容。目录 worker 增加可选 backend_spec；既有 Windows 查询方式不变。
 
 实现参考：[pytsk 项目与读取接口](https://github.com/py4n6/pytsk)、[Linux ext4 超级块规范](https://www.kernel.org/doc/html/latest/filesystems/ext4/super.html)。详细证据、限制与待验收项见 [docs/TASK05_VALIDATION.md](docs/TASK05_VALIDATION.md)。
+
+## 任务 06 统一路径、导航与权限
+
+- `FileSystemBackend` 定义统一的 `list_dir/stat/open_read/get_capabilities` 只读协议；Windows 与 ext4 均实现该协议，不定义写接口。后台通过 `backend_access` 创建后端，执行操作前再次检查分类及实际后端能力。
+- 内部使用 `VirtualPath(partition_id, path)`，路径为相对分区根的 POSIX 字符串，保留大小写。规范化重复分隔符和 `.`，处理分区内 `..`，越过根则拒绝；不会把 Ubuntu `/home` 自动解释成 Windows 盘符路径。后端继续执行各自的名称与链接边界校验，不跟随链接。
+- 地址栏、后退/前进/向上和可点击面包屑共用 VirtualPath。面包屑根按钮保留分区身份，切换到其他后端后再返回，会恢复原分区与目录。宽度不足时可以横向滚动面包屑和文件表。
+- `CapabilityPolicy` 优先检查 GPT 类型及系统/隐藏保护，再查询后端功能。EFI、MSR、Recovery 分别给出说明；未知或没有后端的分区仅显示元数据。错误的 browsable 标志、用户昵称或声明 write=True 都不能绕过策略；所有写操作仍禁用，右键菜单没有写入口。
+- 文件表统一显示名称、大小、类型、修改时间、权限提示、访问状态和后端来源。缺失的大小、时间、类型、链接或权限信息显示“未知”；“属性已读取”只表示元数据读取成功，不代表有效 ACL 授权或内容一定可读取。
+- 导航开始时立即使旧请求失效并清空旧列表；旧成功与旧失败回调均不能覆盖新目录。地址、策略与后端错误都在中央消息页和状态栏展示，不记录文件内容或路径到错误日志。
+
+兼容性：旧 `Location` 导入名仍为 VirtualPath 别名，支持原来的位置参数、`relative_path=` 构造与 `.relative_path` 访问。新代码使用 `.path/.parent/.child/.breadcrumbs()`；`asdict(VirtualPath)` 输出 partition_id/path，不能继续假设序列化键为 relative_path。现有 worker 仍显式传递旧 relative_path JSON 键，已修复全部现有调用者。`FileEntry` 的字段位置保留，权限/链接改为 bool/None 三态，默认未知的大小为 None、时间为空；表格和属性区已适配。新增 category/backend_name 及 backend_source/access_status 字段均在原字段后。
+
+```powershell
+.\.venv\Scripts\python.exe -m scripts.capture_unified_navigation
+```
+
+上述脚本在同一窗口验证真实 `C:\Users` 与合成 ext4 镜像 `/home` 的切换、历史与面包屑，并生成任务 06 截图。真实 Ubuntu 分区不参与自动化读取。详细结果见 [docs/TASK06_VALIDATION.md](docs/TASK06_VALIDATION.md)。
 
 ## 任务 02 界面演示
 

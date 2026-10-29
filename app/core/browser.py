@@ -2,16 +2,10 @@
 
 from dataclasses import dataclass
 from typing import Protocol
+from app.core.virtual_path import VirtualPath
 
 
-@dataclass(frozen=True)
-class Location:
-    partition_id: str
-    relative_path: str = ""
-
-    @property
-    def address(self) -> str:
-        return f"{self.partition_id}:/{self.relative_path}"
+Location = VirtualPath  # 保留旧导入名、位置参数和 relative_path 关键字。
 
 
 @dataclass(frozen=True)
@@ -23,19 +17,23 @@ class Partition:
     browsable: bool
     writable: bool
     reason: str
+    category: str = "未知类型"
+    backend_name: str = ""
 
 
 @dataclass(frozen=True)
 class FileEntry:
     name: str
-    is_directory: bool
-    size: int = 0
-    modified: str = "2026-10-29 10:00"
+    is_directory: bool | None
+    size: int | None = None
+    modified: str = ""
     hidden: bool = False
-    is_link: bool = False
-    readable: bool = False
-    writable: bool = False
+    is_link: bool | None = None
+    readable: bool | None = None
+    writable: bool | None = None
     error: str = ""
+    backend_source: str = "未知"
+    access_status: str = "未知"
 
 
 @dataclass(frozen=True)

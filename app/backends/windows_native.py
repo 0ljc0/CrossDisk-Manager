@@ -132,7 +132,7 @@ class NativeWindowsBackend:
         return FileEntry(name, stat_module.S_ISDIR(info.st_mode), info.st_size,
                          datetime.fromtimestamp(info.st_mtime).strftime("%Y-%m-%d %H:%M:%S"),
                          bool(attributes & 0x2), link, bool(info.st_mode & stat_module.S_IREAD),
-                         bool(info.st_mode & stat_module.S_IWRITE), "")
+                         bool(info.st_mode & stat_module.S_IWRITE), "", "Windows", "属性已读取")
 
     def list_dir(self, relative_path: str = "", *, offset: int = 0, page_size: int = 200,
                  show_hidden: bool = False, fingerprint: str = "") -> DirectoryPage:
@@ -157,7 +157,8 @@ class NativeWindowsBackend:
                     except FileNotFoundError:
                         continue
                     except OSError:
-                        record = FileEntry(entry.name, False, modified="不可读取", error="属性不可读取")
+                        record = FileEntry(entry.name, None, size=None, modified="", error="属性不可读取",
+                                           backend_source="Windows", access_status="属性不可读取")
                     if show_hidden or not record.hidden:
                         entries.append(record)
                     if len(entries) >= page_size or examined >= 2000:

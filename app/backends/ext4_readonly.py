@@ -234,14 +234,14 @@ class Ext4ReadOnlyBackend:
     def _entry(self, name: str, file_object) -> FileEntry:
         meta = file_object.info.meta
         if meta is None or not meta.flags & self.tsk.TSK_FS_META_FLAG_ALLOC:
-            return FileEntry(name, False, modified="不可读取", error="inode 损坏或未分配")
+            return FileEntry(name, None, size=None, error="inode 损坏或未分配", backend_source="ext4", access_status="属性不可读取")
         try:
             modified = datetime.fromtimestamp(meta.mtime).strftime("%Y-%m-%d %H:%M:%S")
         except (OSError, ValueError, OverflowError):
             modified = "时间无效"
         return FileEntry(name, meta.type == self.tsk.TSK_FS_META_TYPE_DIR, int(meta.size), modified,
                          name.startswith("."), meta.type == self.tsk.TSK_FS_META_TYPE_LNK,
-                         bool(meta.mode & 0o444), bool(meta.mode & 0o222))
+                         bool(meta.mode & 0o444), bool(meta.mode & 0o222), "", "ext4", "属性已读取")
 
     def stat(self, relative_path: str = "") -> FileEntry:
         return self._entry(relative_path.rsplit("/", 1)[-1] or "/", self._open(relative_path))
