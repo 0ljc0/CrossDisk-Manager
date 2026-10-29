@@ -8,6 +8,7 @@ from app.services.disk_inventory import LINUX_DATA
 from dataclasses import asdict
 from app.core.capability_policy import CapabilityPolicy
 from app.core.browser import ReadOnlyCapabilities
+from app.core.ext4_write import EXT4_WRITE_DISABLED
 import hashlib
 import ntpath
 
@@ -35,8 +36,8 @@ class InventoryBrowserSource:
                                p.filesystem,
                                ("只读" if self.ext4[p.id]["fingerprint"] else "待验证") if p.id in self.ext4 else p.status,
                                p.id in self.roots or p.id in self.ext4, False,
-                               ("ext4 只读，禁止写入和跟随符号链接" if self.ext4[p.id]["fingerprint"] else
-                                "Linux 类型候选：单击时复核身份并探测 ext4，仅只读；LUKS/LVM 等不支持")
+                               (EXT4_WRITE_DISABLED + "；禁止跟随符号链接" if self.ext4[p.id]["fingerprint"] else
+                                "Linux 类型候选：单击时复核身份并探测 ext4，仅只读；LUKS/LVM 等不支持；" + EXT4_WRITE_DISABLED)
                                if p.id in self.ext4 else "Windows 原生只读浏览，写入禁用" if p.id in self.roots else p.reason,
                                p.category, "ext4" if p.id in self.ext4 else "Windows" if p.id in self.roots else "")
                      for p in self.inventory.partitions) + tuple(self.network.values())

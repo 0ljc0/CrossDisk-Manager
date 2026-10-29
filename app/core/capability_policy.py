@@ -1,9 +1,10 @@
-"""分类保护优先，功能能力其次；本阶段所有写操作始终关闭。"""
+"""分类保护优先；浏览后端只读，Windows 写入另行检查，ext4 写入禁用。"""
 
 from dataclasses import dataclass
 from typing import Callable
 
 from app.core.browser import FileEntry, ReadOnlyCapabilities
+from app.core.ext4_write import EXT4_WRITE_DISABLED
 
 
 @dataclass(frozen=True)
@@ -61,6 +62,8 @@ class CapabilityPolicy:
         caps = capabilities() if callable(capabilities) else capabilities
         reason = ("只读模式：新建、重命名、删除、保存均禁用" if caps.read and caps.list_dir else
                   "后端不具备只读目录浏览能力，仅展示分区信息")
+        if backend == "ext4" and caps.read and caps.list_dir:
+            reason = EXT4_WRITE_DISABLED
         return AccessDecision(bool(caps.read and caps.list_dir), bool(caps.read and caps.stat),
                               bool(caps.read and caps.open_read), False, reason)
 

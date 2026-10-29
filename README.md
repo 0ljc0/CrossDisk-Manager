@@ -1,6 +1,6 @@
 # CrossDisk Manager
 
-面向 Windows 10/11 x64 的 Python + PySide6 跨分区文件管理器。已实现任务 01～10 的环境、只读源后端、统一导航、安全预览、搜索、复制导出和 Windows 受控写入；真实 Ubuntu 分区人工验收仍待完成，当前 ext4 证据来自真实 pytsk3 镜像测试。
+面向 Windows 10/11 x64 的 Python + PySide6 跨分区文件管理器。已实现任务 01～11 的环境、只读源后端、统一导航、安全预览、搜索、复制导出、Windows 受控写入及 ext4 写入准入接口；ext4 写入保持安全禁用。真实 Ubuntu 分区人工验收仍待完成，当前 ext4 证据来自真实 pytsk3 镜像测试。
 
 ## 安装与运行
 
@@ -44,6 +44,7 @@ py -3.12 -m venv .venv
 | 文件/目录复制与导出队列 | 已实现 Windows → Windows、ext4 → Windows，仅新建、不覆盖 |
 | Windows 文件编辑/新建/重命名/移动/删除 | 已实现，独立窗口内明确配置的数据目录，保护卷禁用 |
 | ext4 访问 | 已实现只读后端，真实 pytsk3 镜像测试通过；实盘待人工验收 |
+| ext4 写入适配 | 协议及明确拒绝后端已实现；无已验证驱动，写入禁用 |
 
 默认扫描通过 Windows Storage 查询元数据。用户明确选择 Linux 候选后，独立子进程才尝试以 pytsk3 只读打开当前设备，并重新验证身份与格式；绝不写原始扇区、不挂载系统盘、不分配盘符、不更改隐藏/离线标志或分区表。pytsk3 固定为本机验证版本 20260715。详细进度见 [docs/PROGRESS.md](docs/PROGRESS.md)。
 
@@ -217,6 +218,21 @@ GUI 不自动提权。普通账户无法读取原始设备时会明确提示独�
 脚本默认在 D 盘项目内新临时目录执行真实身份复核及新建、保存、备份、重命名、移动、永久删除；可加 `--test-root D:\CrossDisk_TestWrite` 在任务指定目录内创建独立临时子目录验收，已实际执行通过。仅清理本次临时子目录，不修改既有文件，不触及系统目录或 Ubuntu。系统回收站交互与恢复仍待人工完成。详见 [docs/TASK10_VALIDATION.md](docs/TASK10_VALIDATION.md)。
 
 接口兼容：NativeWindowsBackend 增加可选仅关键字 `write_context`，原调用方式及默认只读能力保持不变；新增六个写操作没有上下文时直接拒绝。CapabilityPolicy 新增 require_windows_write，不改变既有 evaluate 的只读结果。ext4 后端仍没有写接口。无新依赖、没有实施任务 11。
+
+## 任务 11 ext4 写入准入评估
+
+当前构建明确显示“只读：未接入已验证的受控写入驱动；ext4 写入禁用”。工具栏“ext4 写入准入说明”展示证据缺口；该入口只显示说明，没有安装、挂载或开启写入的按钮。Linux 候选的只读格式验证与写入准入互相独立，验证过 ext4 UUID 不会获得写权限。
+
+已调查 Paragon Linux File Systems for Windows、Ext4Fsd、原 Ext2Fsd/Ext3Fsd 与 WSL2 方案的官方资料。共用 Windows 系统盘不能通过 `wsl --mount` 附加；不把系统盘离线，不用 pytsk3 或原始扇区修改代替文件系统写驱动。候选声明、许可证、兼容性与特征矩阵及证据缺口见 [可行性报告](docs/EXT4_WRITE_FEASIBILITY.md)，不代表候选已在本机通过验证。
+
+新增 `Ext4WritableAdapter` 协议、`Ext4WriteCapabilities`、`Ext4AdmissionStatus` 和 `UnsupportedWriteError`。`get_ext4_write_backend()` 当前始终返回 `UnsupportedWriteBackend`，直接调用创建、保存、重命名、移动、删除或 flush 都抛出明确异常，不执行 I/O。没有配置、环境变量或自称 write=True 的解锁途径；不改动 pytsk3 只读层，Windows 独立写入路径不受此协议影响，无新依赖。
+
+```powershell
+.\.venv\Scripts\python.exe -m pytest tests/test_ext4_write_admission.py -q
+.\.venv\Scripts\python.exe -m scripts.capture_ext4_admission_ui
+```
+
+脚本仅使用合成普通镜像验证只读浏览、按钮禁用与镜像 SHA-256 不变，不读取真实 Ubuntu。未安装或调用任何实际写驱动，未执行 Linux 重挂载、离线完整性检查或断电恢复测试；未来须使用用户另行提供的可丢弃镜像/独立测试盘，并满足全部准入条件才可评估接入。本任务以安全禁用方案交付，未开始任务 12。验证记录见 [TASK11_VALIDATION.md](docs/TASK11_VALIDATION.md)。
 
 ## 任务 02 界面演示
 

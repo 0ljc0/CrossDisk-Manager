@@ -37,6 +37,7 @@ from app.ui.search_dialog import SearchDialog
 from app.ui.write_dialog import WriteDialog
 from app.services.windows_write import WriteContext
 from app.backends.windows_native import NativeWindowsBackend
+from app.core.ext4_write import EXT4_WRITE_DISABLED, ext4_admission_status
 
 
 class PropertyView(QPlainTextEdit):
@@ -163,6 +164,7 @@ class MainWindow(QMainWindow):
         operations.setMovable(False)
         self.windows_write_action = self._action("配置 Windows 写入目录…", self.configure_windows_write, operations)
         self.windows_write_action.setEnabled(False)
+        self.ext4_admission_action = self._action("ext4 写入准入说明", self.show_ext4_admission, operations)
         self.copy_action = self._action("复制/导出到 Windows…", self.export_selected, operations)
         self.queue_action = self._action("任务队列", self.copy_dialog.show, operations)
         self.addToolBar(operations)
@@ -482,6 +484,12 @@ class MainWindow(QMainWindow):
         except (ValueError, OSError, StopIteration) as exc:
             self.report_error(user_message(exc))
 
+    def show_ext4_admission(self):
+        status = ext4_admission_status()
+        QMessageBox.information(self, "ext4 写入未开放", status.reason + "\n\n待满足：\n" +
+            "\n".join("• " + item for item in status.missing) +
+            "\n\n本程序不安装驱动、不自动挂载、不修改系统盘状态。详见 docs/EXT4_WRITE_FEASIBILITY.md。")
+
     def export_selected(self) -> None:
         try:
             if not isinstance(self.source, InventoryBrowserSource) or not self.location or self.loading:
@@ -766,7 +774,7 @@ class MainWindow(QMainWindow):
             spec["probe"] = page.source_info
             self.partitions = {p.id: p for p in self.source.partitions()}
             self.show_partition()
-            self.properties.setText(self.properties.text() + f"\n\next4 UUID：{page.source_info['uuid']}\n卷标：{page.source_info['label']}\n只读探测通过；不提供任何写入接口。")
+            self.properties.setText(self.properties.text() + f"\n\next4 UUID：{page.source_info['uuid']}\n卷标：{page.source_info['label']}\n只读探测通过；{EXT4_WRITE_DISABLED}。")
             self.mark_partition_status(self.location.partition_id, "只读 ext4")
         self.fingerprint = page.fingerprint
         self.next_offset = page.next_offset
