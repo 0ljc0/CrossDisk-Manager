@@ -37,6 +37,7 @@ class PartitionInfo:
     reason: str
     volume_status: str
     identity_stable: bool
+    volume_path: str = ""
 
 
 @dataclass(frozen=True)

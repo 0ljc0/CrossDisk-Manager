@@ -57,7 +57,7 @@ def test_background_scan_tree_properties_and_refresh(tmp_path, sample):
     assert all(not a.isEnabled() for a in window.write_actions)
     assert window.file_model.rowCount() == 0
     service.result = DiskInventory((), (), ())  # 拔出后的空清单不能保留旧设备。
-    window.refresh_action.trigger()
+    window.scan_action.trigger()
     wait_scan(window)
     assert not window.partitions
     assert window.partition_model.rowCount() == 0

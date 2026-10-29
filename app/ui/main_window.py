@@ -5,7 +5,7 @@ from dataclasses import replace
 
 from PySide6.QtGui import QAction, QActionGroup, QCloseEvent, QTextOption
 from PySide6.QtWidgets import (QApplication, QHeaderView, QLabel, QLineEdit, QMainWindow, QPlainTextEdit,
-                               QMessageBox, QSplitter, QStackedWidget, QTableView,
+                               QMessageBox, QPushButton, QSplitter, QStackedWidget, QTableView,
                                QToolBar, QTreeView, QVBoxLayout, QWidget)
 from PySide6.QtCore import QSortFilterProxyModel, QTimer, Qt
 
@@ -18,6 +18,8 @@ from app.core.inventory import DiskInventory
 from app.services.disk_inventory import DiskInventoryService
 from app.backends.inventory_browser import InventoryBrowserSource
 from app.jobs.inventory_worker import InventoryWorker
+from app.jobs.directory_worker import DirectoryWorker
+from app.core.browser import DirectoryPage
 
 
 class PropertyView(QPlainTextEdit):
@@ -47,6 +49,10 @@ class MainWindow(QMainWindow):
         self.inventory: DiskInventory | None = None
         self.worker: InventoryWorker | None = None
         self.close_pending = False
+        self.directory_worker: DirectoryWorker | None = None
+        self.pending_directory: dict | None = None
+        self.next_offset: int | None = None
+        self.fingerprint = ""
         self.source = source if source is not None else MockBrowserSource()
         self.partitions = {p.id: p for p in self.source.partitions()}
         self.location: Location | None = None
@@ -62,13 +68,11 @@ class MainWindow(QMainWindow):
         self._build_views()
         self.set_theme(config.theme)
         if self.inventory_service is not None:
-            self.setWindowTitle("CrossDisk Manager · 跨分区文件管理器 · 磁盘清单")
-            self.safety_label.setText("元数据查询 · 全局只读")
-            self.address.setReadOnly(True)
-            self.address.setToolTip("本阶段仅展示真实分区标识，文件导航尚未接入")
-            self.search.setEnabled(False)
-            self.search.setPlaceholderText("文件搜索尚未接入")
-            self.hidden_action.setEnabled(False)
+            self.setWindowTitle("CrossDisk Manager · 跨分区文件管理器 · Windows 只读浏览")
+            self.safety_label.setText("Windows 文件浏览 · 全局只读")
+            self.address.setToolTip("例如 C:\\Users、D:\\ 或普通 UNC 共享路径，回车打开")
+            self.search.setPlaceholderText("筛选已加载的文件…")
+            self.hidden_action.setText("显示隐藏文件")
             self.partitions = {}
             self.partition_model.clear()
             for action in self.write_actions + [self.back_action, self.forward_action, self.up_action]:
@@ -94,6 +98,8 @@ class MainWindow(QMainWindow):
         self.forward_action = self._action("前进", lambda: self.move_history(1), navigation, "Alt+Right")
         self.up_action = self._action("向上", self.go_up, navigation, "Alt+Up")
         self.refresh_action = self._action("刷新", self.refresh, navigation, "F5")
+        self.scan_action = self._action("重扫磁盘", self.scan_inventory, navigation)
+        self.scan_action.setVisible(self.inventory_service is not None)
         self.addToolBarBreak()
         address_bar = QToolBar("地址与搜索", self)
         address_bar.setMovable(False)
@@ -135,7 +141,7 @@ class MainWindow(QMainWindow):
         view_menu.addAction(self.hidden_action)
         help_menu = self.menuBar().addMenu("帮助")
         self._action("关于演示", lambda: QMessageBox.information(
-            self, "关于", "CrossDisk Manager\n任务 03：只读磁盘元数据查询；--demo 可查看模拟文件界面。\n所有文件写入功能禁用。"), help_menu)
+            self, "关于", "CrossDisk Manager\n任务 04：Windows 原生只读浏览；--demo 可查看模拟界面。\n所有文件写入功能禁用。"), help_menu)
 
     def _build_views(self) -> None:
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -163,6 +169,7 @@ class MainWindow(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.table.setColumnWidth(2, 85)
         self.table.setColumnWidth(3, 160)
+        self.table.setColumnWidth(4, 145)
         self.table.doubleClicked.connect(self.open_entry)
         self.table.selectionModel().currentChanged.connect(self.show_entry)
         self.message = QLabel()
@@ -177,6 +184,10 @@ class MainWindow(QMainWindow):
         self.path_label.setWordWrap(True)
         layout.addWidget(self.path_label)
         layout.addWidget(self.pages)
+        self.more_button = QPushButton("加载下一批（最多 200 项）")
+        self.more_button.setVisible(False)
+        self.more_button.clicked.connect(self.load_more)
+        layout.addWidget(self.more_button)
         self.splitter.addWidget(middle)
         self.properties = PropertyView()
         self.properties.setText("选择文件或分区以查看属性")
@@ -210,10 +221,11 @@ class MainWindow(QMainWindow):
         elif self.inventory and index.data(DISK_ROLE):
             disk = next(d for d in self.inventory.disks if d.id == index.data(DISK_ROLE))
             self.request_id += 1
+            self.cancel_directory()
             self.location = None
             self.address.clear()
             self.file_model.set_entries(())
-            self.show_message("请选择下方分区查看元数据；当前未接入文件浏览。")
+            self.show_message("请选择普通 Windows 分区进行只读浏览；受保护分区仅展示元数据。")
             self.properties.setText(f"磁盘 {disk.number}\n型号：{disk.model}\n容量：{disk.size:,} B ({disk.size / 2**30:.2f} GiB)\n分区表：{disk.partition_style}\n状态：{disk.status}\n离线：{disk.offline}\n只读：{disk.read_only}\nGPT GUID：{disk.guid or '不可用'}\n稳定标识：{disk.id}\n身份可靠：{disk.identity_stable}")
 
     def navigate(self, location: Location, record: bool = True) -> None:
@@ -224,9 +236,10 @@ class MainWindow(QMainWindow):
         if record and (self.history_index < 0 or self.history[self.history_index] != location):
             self.history = self.history[:self.history_index + 1] + [location]
             self.history_index = len(self.history) - 1
-        self.address.setText(location.address)
+        address = self.source.display_address(location) if isinstance(self.source, InventoryBrowserSource) else location.address
+        self.address.setText(address)
         self.search.clear()
-        self.path_label.setText(location.address)
+        self.path_label.setText(address)
         self.path_label.setTextFormat(Qt.TextFormat.PlainText)
         indexes = self.partition_model.match(self.partition_model.index(0, 0), Qt.ItemDataRole.UserRole,
             location.partition_id, 1, Qt.MatchFlag.MatchExactly | Qt.MatchFlag.MatchRecursive)
@@ -245,10 +258,15 @@ class MainWindow(QMainWindow):
             action.setStatusTip(self.block_reason)
         self.show_partition()
         if self.inventory_service is not None:
+            self.request_id += 1
+            self.cancel_directory()
             self.file_model.set_entries(())
-            self.load_failed = True
-            self.show_message(partition.reason)
-            self.statusBar().showMessage("磁盘元数据 · " + partition.reason)
+            if partition.browsable:
+                self.start_directory()
+            else:
+                self.load_failed = True
+                self.show_message(partition.reason)
+                self.statusBar().showMessage("磁盘元数据 · " + partition.reason)
             return
         self.request_id += 1
         request_id = self.request_id
@@ -288,8 +306,11 @@ class MainWindow(QMainWindow):
         if count:
             self.pages.setCurrentWidget(self.table)
         else:
-            self.show_message("没有匹配的模拟文件" if text else "此模拟目录为空")
-        self.statusBar().showMessage(f"模拟目录 · {count} 项 · 写入禁用：{self.block_reason}")
+            self.show_message(("已加载批次没有匹配文件，可继续加载下一批" if self.next_offset is not None else "没有匹配的文件")
+                              if text else "当前批次没有可显示的文件，可继续加载下一批" if self.next_offset is not None else
+                              "此目录为空或当前可见文件为空")
+        prefix = "已加载" if self.inventory_service else "模拟目录"
+        self.statusBar().showMessage(f"{prefix} · {count} 项 · 写入禁用：{self.block_reason}")
 
     def show_message(self, text: str) -> None:
         self.message.setText(text)
@@ -297,27 +318,41 @@ class MainWindow(QMainWindow):
 
     def show_partition(self) -> None:
         partition = self.partitions[self.location.partition_id]
-        if self.inventory:
+        if self.inventory and partition.id not in getattr(self.source, "network", {}):
             p = next(p for p in self.inventory.partitions if p.id == partition.id)
-            self.properties.setText(f"磁盘 {p.disk_number} / 分区 {p.number}\n类别：{p.category}\n盘符：{p.drive_letter or '无'}\n卷标：{p.label or '无'}\n文件系统：{p.filesystem}\n状态：{p.status}\n卷状态：{p.volume_status or '不可用'}\n大小：{p.size:,} B ({p.size / 2**30:.2f} GiB)\n起始偏移：{p.offset:,} B\n隐藏：{p.hidden}\nGPT Type GUID：{p.gpt_type or '不可用'}\nPartition GUID：{p.guid or '不可用'}\n稳定标识：{p.id}\n身份可靠：{p.identity_stable}\n\n{p.reason}")
+            self.properties.setText(f"磁盘 {p.disk_number} / 分区 {p.number}\n类别：{p.category}\n盘符：{p.drive_letter or '无'}\n卷标：{p.label or '无'}\n文件系统：{p.filesystem}\n状态：{p.status}\n卷状态：{p.volume_status or '不可用'}\n大小：{p.size:,} B ({p.size / 2**30:.2f} GiB)\n起始偏移：{p.offset:,} B\n隐藏：{p.hidden}\nGPT Type GUID：{p.gpt_type or '不可用'}\nPartition GUID：{p.guid or '不可用'}\n稳定标识：{p.id}\n身份可靠：{p.identity_stable}\n\n{partition.reason}")
             return
         self.properties.setText(f"{partition.name}\n\n文件系统：{partition.filesystem}\n能力：{partition.status}\n\n{partition.reason}\n\n写入禁用：{self.block_reason}\n\n仅模拟属性，未读取真实磁盘。")
 
     def show_entry(self, index, previous=None) -> None:
         entry = index.data(Qt.ItemDataRole.UserRole)
         if entry:
-            self.properties.setText(f"{entry.name}\n\n类型：{'文件夹' if entry.is_directory else '文件'}\n大小：{entry.size:,} B\n修改时间：{entry.modified}\n\n模拟属性，尚未接入文件内容预览。\n\n写入禁用：{self.block_reason}")
+            note = (f"权限属性提示：读 {entry.readable} / 写 {entry.writable}\n实际访问仍由 Windows 权限决定，应用写入禁用。\n链接/重解析点：{entry.is_link}\n{entry.error}\n文件内容预览尚未接入。"
+                    if self.inventory_service else "模拟属性，尚未接入文件内容预览。")
+            self.properties.setText(f"{entry.name}\n\n类型：{'链接（受限）' if entry.is_link else '文件夹' if entry.is_directory else '文件'}\n大小：{entry.size:,} B\n修改时间：{entry.modified}\n\n{note}\n\n写入禁用：{self.block_reason}")
 
     def open_entry(self, index) -> None:
         entry = index.data(Qt.ItemDataRole.UserRole)
-        if entry and entry.is_directory:
+        if entry and entry.is_link:
+            self.statusBar().showMessage("链接和重解析点仅展示属性，禁止进入或读取，以防止越界和循环")
+        elif entry and entry.is_directory:
             path = "/".join(filter(None, (self.location.relative_path, entry.name)))
             self.navigate(Location(self.location.partition_id, path))
         elif entry:
             self.show_entry(index)
-            self.statusBar().showMessage("已显示模拟文件属性，内容预览将在后续任务接入")
+            self.statusBar().showMessage("已显示文件属性，内容预览将在后续任务接入")
 
     def open_address(self) -> None:
+        if isinstance(self.source, InventoryBrowserSource):
+            try:
+                location = self.source.resolve_address(self.address.text().strip())
+                self.partitions = {p.id: p for p in self.source.partitions()}
+                if location.partition_id in self.source.network:
+                    self.partition_model.add_network(self.partitions[location.partition_id])
+                self.navigate(location)
+            except ValueError as exc:
+                self.statusBar().showMessage(str(exc))
+            return
         partition_id, separator, path = self.address.text().strip().partition(":/")
         if not separator or "\\" in path or any(p in (".", "..", "") for p in path.split("/") if path):
             self.statusBar().showMessage("地址格式无效，请使用 mock-c:/用户文档 形式")
@@ -335,27 +370,100 @@ class MainWindow(QMainWindow):
             self.navigate(Location(self.location.partition_id, self.location.relative_path.rpartition("/")[0]))
 
     def refresh(self) -> None:
-        if self.inventory_service is not None:
-            self.scan_inventory()
-        elif self.location:
+        if self.location:
             self.navigate(self.location, record=False)
+        elif self.inventory_service is not None:
+            self.scan_inventory()
+
+    def cancel_directory(self) -> None:
+        self.pending_directory = None
+        self.next_offset = None
+        self.fingerprint = ""
+        self.more_button.setVisible(False)
+        if self.directory_worker:
+            self.directory_worker.requestInterruption()
+
+    def start_directory(self, offset: int = 0) -> None:
+        if not isinstance(self.source, InventoryBrowserSource) or not self.location:
+            return
+        self.loading = True
+        self.load_failed = False
+        self.more_button.setEnabled(False)
+        if not offset:
+            self.show_message("正在后台加载 Windows 目录…")
+        self.pending_directory = dict(request_id=self.request_id, location=self.location,
+            root=self.source.roots[self.location.partition_id], show_hidden=self.config.show_hidden_files,
+            offset=offset, fingerprint=self.fingerprint, parent=self)
+        if not self.directory_worker:
+            self.launch_directory()
+
+    def launch_directory(self) -> None:
+        if not self.pending_directory:
+            return
+        arguments, self.pending_directory = self.pending_directory, None
+        self.directory_worker = DirectoryWorker(**arguments)
+        self.directory_worker.succeeded.connect(self.directory_ready)
+        self.directory_worker.failed.connect(self.directory_failed)
+        self.directory_worker.finished.connect(self.directory_finished)
+        self.directory_worker.start()
+
+    def load_more(self) -> None:
+        if self.next_offset is not None and not self.loading:
+            self.start_directory(self.next_offset)
+
+    def directory_ready(self, request_id: int, page: DirectoryPage) -> None:
+        if request_id != self.request_id or self.close_pending:
+            return
+        self.loading = False
+        self.fingerprint = page.fingerprint
+        self.next_offset = page.next_offset
+        self.file_model.append_entries(page.entries)
+        self.more_button.setVisible(page.next_offset is not None)
+        self.more_button.setEnabled(True)
+        self.filter_entries(self.search.text())
+
+    def directory_failed(self, request_id: int, message: str) -> None:
+        if request_id != self.request_id or self.close_pending:
+            return
+        self.loading = False
+        self.load_failed = True
+        self.next_offset = None
+        self.more_button.setVisible(False)
+        self.show_message(message)
+        self.statusBar().showMessage(message)
+        self.logger.error("Windows 只读目录查询失败")
+
+    def directory_finished(self) -> None:
+        if self.directory_worker:
+            self.directory_worker.deleteLater()
+            self.directory_worker = None
+        if self.close_pending:
+            self.close()
+        else:
+            self.launch_directory()
 
     def scan_inventory(self) -> None:
         if self.worker and self.worker.isRunning():
             return
         self.request_id += 1
+        self.cancel_directory()
         self.location = None
         self.inventory = None
         self.partitions = {}
+        self.source = InventoryBrowserSource(DiskInventory((), (), ()))
         self.history.clear()
         self.history_index = -1
         self.file_model.set_entries(())
         self.partition_model.clear()
         self.address.clear()
+        self.address.setEnabled(False)
+        for action in (self.back_action, self.forward_action, self.up_action):
+            action.setEnabled(False)
         self.path_label.setText("Windows Storage · 只读磁盘清单")
         self.show_message("正在后台扫描磁盘与分区，请稍候…")
         self.properties.setText("仅查询磁盘元数据，不读取文件或修改分区。")
         self.refresh_action.setEnabled(False)
+        self.scan_action.setEnabled(False)
         self.statusBar().showMessage("扫描中，可继续移动窗口或切换主题")
         self.worker = InventoryWorker(self.inventory_service, self)
         self.worker.succeeded.connect(self.inventory_ready)
@@ -365,6 +473,7 @@ class MainWindow(QMainWindow):
 
     def inventory_ready(self, inventory: DiskInventory) -> None:
         self.inventory = inventory
+        self.address.setEnabled(True)
         self.source = InventoryBrowserSource(inventory)
         self.partitions = {p.id: p for p in self.source.partitions()}
         old_model = self.partition_model
@@ -377,7 +486,7 @@ class MainWindow(QMainWindow):
         old_model.deleteLater()
         self.tree.expandAll()
         self.statusBar().showMessage(f"发现 {len(inventory.disks)} 个磁盘、{len(inventory.partitions)} 个分区、{len(inventory.volumes)} 个卷")
-        self.show_message("选择左侧分区查看元数据；文件浏览尚未接入。" if inventory.disks else "未发现物理磁盘，设备可能已断开。可点击刷新重试。")
+        self.show_message("选择普通 Windows 分区只读浏览；受保护或未知分区仅展示元数据。" if inventory.disks else "未发现物理磁盘，设备可能已断开。可点击刷新重试。")
         self.logger.info("磁盘元数据扫描完成：%d 个磁盘，%d 个分区", len(inventory.disks), len(inventory.partitions))
 
     def inventory_failed(self, message: str) -> None:
@@ -390,6 +499,7 @@ class MainWindow(QMainWindow):
             self.worker.deleteLater()
             self.worker = None
         self.refresh_action.setEnabled(True)
+        self.scan_action.setEnabled(True)
         if self.close_pending:
             self.close()
 
@@ -397,6 +507,12 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(self.block_reason)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        if self.directory_worker:
+            self.close_pending = True
+            self.request_id += 1
+            self.cancel_directory()
+            event.ignore()
+            return
         if self.worker and self.worker.isRunning():
             self.close_pending = True
             self.statusBar().showMessage("正在等待只读扫描结束后退出（查询有超时限制）…")

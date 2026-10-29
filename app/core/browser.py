@@ -32,6 +32,25 @@ class FileEntry:
     size: int = 0
     modified: str = "2026-10-29 10:00"
     hidden: bool = False
+    is_link: bool = False
+    readable: bool = False
+    writable: bool = False
+    error: str = ""
+
+
+@dataclass(frozen=True)
+class DirectoryPage:
+    entries: tuple[FileEntry, ...]
+    next_offset: int | None
+    fingerprint: str
+
+
+@dataclass(frozen=True)
+class ReadOnlyCapabilities:
+    list_dir: bool = True
+    stat: bool = True
+    open_read: bool = True
+    write: bool = False
 
 
 class BrowserSource(Protocol):

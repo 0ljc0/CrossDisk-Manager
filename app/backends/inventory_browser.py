@@ -2,15 +2,68 @@
 
 from app.core.browser import Location, Partition
 from app.core.inventory import DiskInventory
+from app.backends.windows_native import NativeWindowsBackend, VOLUME_ROOT, validate_relative
+import hashlib
+import ntpath
 
 
 class InventoryBrowserSource:
     def __init__(self, inventory: DiskInventory) -> None:
         self.inventory = inventory
+        self.roots: dict[str, str] = {}
+        self.network: dict[str, Partition] = {}
+        for p in inventory.partitions:
+            disk = next(d for d in inventory.disks if d.id == p.disk_id)
+            if (p.category == "普通数据" and p.status == "只读" and not p.hidden and not disk.offline
+                    and p.identity_stable and p.filesystem.upper() in ("NTFS", "FAT", "FAT32", "EXFAT")
+                    and VOLUME_ROOT.fullmatch(p.volume_path)):
+                self.roots[p.id] = p.volume_path
 
     def partitions(self) -> tuple[Partition, ...]:
         return tuple(Partition(p.id, f"分区 {p.number} · {p.drive_letter + ':' if p.drive_letter else p.category}",
-                               p.filesystem, p.status, False, False, p.reason) for p in self.inventory.partitions)
+                               p.filesystem, p.status, p.id in self.roots, False,
+                               "Windows 原生只读浏览，写入禁用" if p.id in self.roots else p.reason)
+                     for p in self.inventory.partitions) + tuple(self.network.values())
 
     def list_directory(self, location: Location) -> tuple:
-        raise PermissionError("任务 03 仅展示分区元数据，文件浏览尚未接入。")
+        # 保留旧接口；GUI 使用后台分页，不能在 UI 主线程调用这里。
+        return NativeWindowsBackend(location.partition_id, self.roots[location.partition_id]).list_dir(location.relative_path).entries
+
+    def resolve_address(self, address: str) -> Location:
+        """仅路由已验证卷或用户明确输入的普通 UNC；此方法不执行 I/O。"""
+        if address.startswith("\\\\") and not address.startswith(("\\\\?\\", "\\\\.\\")):
+            drive, tail = ntpath.splitdrive(address)
+            root = drive + "\\"
+            backend = NativeWindowsBackend("unc", root)
+            identifier = "unc-" + hashlib.sha256(backend.root.casefold().encode()).hexdigest()
+            relative = tail.lstrip("\\").rstrip("\\").replace("\\", "/")
+            validate_relative(relative)
+            self.roots[identifier] = backend.root
+            self.network[identifier] = Partition(identifier, drive, "网络共享", "只读", True, False,
+                                                 "显式打开的 UNC 共享；受 Windows 权限约束，仅只读")
+            return Location(identifier, relative)
+        normalized = address.replace("\\", "/")
+        for p in self.inventory.partitions:
+            prefix = p.drive_letter + ":/" if p.drive_letter else ""
+            native_prefix = p.volume_path.replace("\\", "/")
+            for candidate in (prefix, native_prefix):
+                if candidate and normalized.casefold().startswith(candidate.casefold()):
+                    if p.id not in self.roots:
+                        raise ValueError("该分区受保护或未识别，不允许文件浏览")
+                    relative = normalized[len(candidate):].rstrip("/")
+                    validate_relative(relative)
+                    return Location(p.id, relative)
+        partition_id, separator, relative = address.partition(":/")
+        if separator and partition_id in self.roots:
+            relative = relative.rstrip("/")
+            validate_relative(relative)
+            return Location(partition_id, relative)
+        raise ValueError("地址未对应到已验证的 Windows 卷，请扫描或输入普通 UNC 共享路径")
+
+    def display_address(self, location: Location) -> str:
+        for p in self.inventory.partitions:
+            if p.id == location.partition_id and p.drive_letter:
+                return p.drive_letter + ":\\" + location.relative_path.replace("/", "\\")
+        if location.partition_id in self.network:
+            return self.network[location.partition_id].name + "\\" + location.relative_path.replace("/", "\\")
+        return location.address

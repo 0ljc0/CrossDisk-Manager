@@ -2,6 +2,7 @@
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import QApplication, QStyle
 
 from app.core.browser import FileEntry, Partition
 from app.core.inventory import DiskInventory
@@ -32,6 +33,17 @@ class InventoryTreeModel(QStandardItemModel):
                 root.appendRow([name, status])
             self.appendRow([root, state])
 
+    def add_network(self, partition: Partition) -> None:
+        if self.match(self.index(0, 0), Qt.ItemDataRole.UserRole, partition.id, 1,
+                      Qt.MatchFlag.MatchExactly | Qt.MatchFlag.MatchRecursive):
+            return
+        name, status = QStandardItem(partition.name), QStandardItem("只读网络共享")
+        for item in (name, status):
+            item.setEditable(False)
+            item.setData(partition.id, Qt.ItemDataRole.UserRole)
+            item.setToolTip(partition.reason)
+        self.appendRow([name, status])
+
 
 class PartitionModel(QStandardItemModel):
     def __init__(self, partitions: tuple[Partition, ...], parent=None) -> None:
@@ -50,7 +62,7 @@ class PartitionModel(QStandardItemModel):
 
 
 class FileTableModel(QAbstractTableModel):
-    headers = ("名称", "类型", "大小", "修改时间（模拟）")
+    headers = ("名称", "类型", "大小", "修改时间", "权限提示")
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -60,6 +72,13 @@ class FileTableModel(QAbstractTableModel):
         self.beginResetModel()
         self.entries = entries
         self.endResetModel()
+
+    def append_entries(self, entries: tuple[FileEntry, ...]) -> None:
+        if entries:
+            first = len(self.entries)
+            self.beginInsertRows(QModelIndex(), first, first + len(entries) - 1)
+            self.entries += entries
+            self.endInsertRows()
 
     def rowCount(self, parent=QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self.entries)
@@ -79,8 +98,13 @@ class FileTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.UserRole:
             return entry
         if role == Qt.ItemDataRole.ToolTipRole:
-            return entry.name
+            return entry.name + ("\n" + entry.error if entry.error else "") + "\n权限仅是属性提示，实际读取仍由 Windows ACL 决定"
+        if role == Qt.ItemDataRole.DecorationRole and index.column() == 0:
+            icon = (QStyle.StandardPixmap.SP_FileLinkIcon if entry.is_link else
+                    QStyle.StandardPixmap.SP_DirIcon if entry.is_directory else QStyle.StandardPixmap.SP_FileIcon)
+            return QApplication.style().standardIcon(icon)
         if role == Qt.ItemDataRole.DisplayRole:
-            return (entry.name, "文件夹" if entry.is_directory else "文件",
-                    "—" if entry.is_directory else f"{entry.size:,} B", entry.modified)[index.column()]
+            return (entry.name, "链接（受限）" if entry.is_link else "文件夹" if entry.is_directory else "文件",
+                    "—" if entry.is_directory or entry.error else f"{entry.size:,} B", entry.modified,
+                    entry.error or f"读：{'是' if entry.readable else '未知'} / 写：{'是' if entry.writable else '否或未知'}")[index.column()]
         return None
