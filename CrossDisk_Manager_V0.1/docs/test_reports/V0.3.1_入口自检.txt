@@ -1,3 +1,0 @@
-main.py real entrypoint + original Qt event loop: PASS
-1 disk, 6 partitions; automatic close after scanner finished
-No manual GUI acceptance claimed.
