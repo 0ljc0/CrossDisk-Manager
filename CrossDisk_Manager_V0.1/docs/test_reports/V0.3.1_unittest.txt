@@ -1,0 +1,28 @@
+exit_code=0
+test_outside_root_rejected (test_links_adapters.AdapterTests.test_outside_root_rejected) ... ok
+test_read_only_adapter (test_links_adapters.AdapterTests.test_read_only_adapter) ... ok
+test_ambiguity_rejected (test_links_adapters.MappingTests.test_ambiguity_rejected) ... ok
+test_extent_conflict_overrides_drive_letter (test_links_adapters.MappingTests.test_extent_conflict_overrides_drive_letter) ... ok
+test_file_system_flag_is_not_write_claim (test_links_adapters.MappingTests.test_file_system_flag_is_not_write_claim) ... ok
+test_invalid_length_rejected (test_links_adapters.MappingTests.test_invalid_length_rejected) ... ok
+test_match_physical_extent (test_links_adapters.MappingTests.test_match_physical_extent) ... ok
+test_no_guess_by_drive_letter_or_volume_type (test_links_adapters.MappingTests.test_no_guess_by_drive_letter_or_volume_type) ... ok
+test_partition_reported_drive_letter (test_links_adapters.MappingTests.test_partition_reported_drive_letter) ... ok
+test_binary_nul (test_preview_utils.PreviewBaselineTests.test_binary_nul) ... ok
+test_empty (test_preview_utils.PreviewBaselineTests.test_empty) ... ok
+test_gb18030 (test_preview_utils.PreviewBaselineTests.test_gb18030) ... ok
+test_line_endings_are_not_converted_by_decoder (test_preview_utils.PreviewBaselineTests.test_line_endings_are_not_converted_by_decoder) ... ok
+test_truncated_utf8_character (test_preview_utils.PreviewBaselineTests.test_truncated_utf8_character) ... ok
+test_utf16_bom_both_orders (test_preview_utils.PreviewBaselineTests.test_utf16_bom_both_orders) ... ok
+test_utf8_and_exact_lf (test_preview_utils.PreviewBaselineTests.test_utf8_and_exact_lf) ... ok
+test_utf8_bom (test_preview_utils.PreviewBaselineTests.test_utf8_bom) ... ok
+test_english_windows_text (test_storage_scan.StorageInfoTests.test_english_windows_text) ... ok
+test_invalid_payload (test_storage_scan.StorageInfoTests.test_invalid_payload) ... ok
+test_linux_partition_not_guessed_ext4 (test_storage_scan.StorageInfoTests.test_linux_partition_not_guessed_ext4) ... ok
+test_normalize_single (test_storage_scan.StorageInfoTests.test_normalize_single) ... ok
+test_protected_partition (test_storage_scan.StorageInfoTests.test_protected_partition) ... ok
+
+----------------------------------------------------------------------
+Ran 22 tests in 0.012s
+
+OK

@@ -1,0 +1,185 @@
+{
+  "administrator": false,
+  "checks": [
+    "real-gui-start-and-scan",
+    "C-D-address-navigation",
+    "protected-partitions-reject-association",
+    "temporary-txt-code-image-previews-and-unchanged-hash",
+    "refresh-preserves-current-directory"
+  ],
+  "warnings": [
+    {
+      "title": "受保护分区",
+      "text": "EFI、MSR、Recovery 不允许在程序中建立文件浏览关联。"
+    },
+    {
+      "title": "受保护分区",
+      "text": "EFI、MSR、Recovery 不允许在程序中建立文件浏览关联。"
+    },
+    {
+      "title": "受保护分区",
+      "text": "EFI、MSR、Recovery 不允许在程序中建立文件浏览关联。"
+    }
+  ],
+  "disks": [
+    {
+      "number": 0,
+      "name": "YMTC YMSS2ED08D25MC",
+      "size": 1024209543168,
+      "partition_style": "GPT",
+      "health": "Healthy",
+      "operational": "Online",
+      "bus_type": "NVMe"
+    }
+  ],
+  "partitions": [
+    {
+      "disk_number": 0,
+      "partition_number": 1,
+      "type": "System",
+      "gpt_type": "{c12a7328-f81f-11d2-ba4b-00a0c93ec93b}",
+      "offset": 1048576,
+      "size": 272629760,
+      "is_hidden": true,
+      "is_read_only": false,
+      "drive_letter": "",
+      "access_paths": [
+        "\\\\?\\Volume{ae7fc073-1486-440f-865f-5d07f1ea43aa}\\"
+      ],
+      "file_system": "",
+      "volume_label": "",
+      "volume_size": 0,
+      "free_space": 0
+    },
+    {
+      "disk_number": 0,
+      "partition_number": 2,
+      "type": "Reserved",
+      "gpt_type": "{e3c9e316-0b5c-4db8-817d-f92df00215ae}",
+      "offset": 273678336,
+      "size": 16777216,
+      "is_hidden": true,
+      "is_read_only": false,
+      "drive_letter": "",
+      "access_paths": [],
+      "file_system": "",
+      "volume_label": "",
+      "volume_size": 0,
+      "free_space": 0
+    },
+    {
+      "disk_number": 0,
+      "partition_number": 3,
+      "type": "Basic",
+      "gpt_type": "{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}",
+      "offset": 290455552,
+      "size": 322123595776,
+      "is_hidden": false,
+      "is_read_only": false,
+      "drive_letter": "C",
+      "access_paths": [
+        "C:\\",
+        "\\\\?\\Volume{e6fe5aeb-046e-4470-ae78-e3934be7ca4b}\\"
+      ],
+      "file_system": "NTFS",
+      "volume_label": "Windows-SSD",
+      "volume_size": 322123591680,
+      "free_space": 115713744896
+    },
+    {
+      "disk_number": 0,
+      "partition_number": 4,
+      "type": "Basic",
+      "gpt_type": "{ebd0a0a2-b9e5-4433-87c0-68b6b72699c7}",
+      "offset": 322414051328,
+      "size": 538631848448,
+      "is_hidden": false,
+      "is_read_only": false,
+      "drive_letter": "D",
+      "access_paths": [
+        "D:\\",
+        "\\\\?\\Volume{4a54299d-3845-11f1-bf7f-e90634dad2cf}\\"
+      ],
+      "file_system": "NTFS",
+      "volume_label": "Data",
+      "volume_size": 538631847936,
+      "free_space": 171377967104
+    },
+    {
+      "disk_number": 0,
+      "partition_number": 6,
+      "type": "Unknown",
+      "gpt_type": "{0fc63daf-8483-4772-8e79-3d69d8477de4}",
+      "offset": 861046571008,
+      "size": 161065467904,
+      "is_hidden": true,
+      "is_read_only": false,
+      "drive_letter": "",
+      "access_paths": [],
+      "file_system": "",
+      "volume_label": "",
+      "volume_size": 0,
+      "free_space": 0
+    },
+    {
+      "disk_number": 0,
+      "partition_number": 5,
+      "type": "Recovery",
+      "gpt_type": "{de94bba4-06d1-4d40-a16a-bfd50179d6ac}",
+      "offset": 1022112038912,
+      "size": 2097152000,
+      "is_hidden": true,
+      "is_read_only": false,
+      "drive_letter": "",
+      "access_paths": [
+        "\\\\?\\Volume{4f91ad7c-ed25-40f8-a5a1-53866dcfd4a9}\\"
+      ],
+      "file_system": "NTFS",
+      "volume_label": "WINRE_DRV",
+      "volume_size": 2097147904,
+      "free_space": 1359147008
+    }
+  ],
+  "drives": [
+    {
+      "root": "C:\\",
+      "filesystem": "NTFS",
+      "extent": [
+        0,
+        290455552,
+        322123595776
+      ],
+      "extent_note": "物理 extent 查询成功",
+      "mode": "Windows 未标记只读（不代表实际可写）"
+    },
+    {
+      "root": "D:\\",
+      "filesystem": "NTFS",
+      "extent": [
+        0,
+        322414051328,
+        538631848448
+      ],
+      "extent_note": "物理 extent 查询成功",
+      "mode": "Windows 未标记只读（不代表实际可写）"
+    }
+  ],
+  "links": [
+    {
+      "disk": 0,
+      "partition": 3,
+      "root": "C:\\",
+      "evidence": "卷物理 extent 与分区偏移量匹配"
+    },
+    {
+      "disk": 0,
+      "partition": 4,
+      "root": "D:\\",
+      "evidence": "卷物理 extent 与分区偏移量匹配"
+    }
+  ],
+  "protected_partitions_checked": 3,
+  "ubuntu_sample": {
+    "status": "E-not-mounted-skipped"
+  }
+}
