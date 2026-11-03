@@ -16,7 +16,7 @@ from app.services.preview import query_preview, decode_text, thumbnail
 
 
 def request(tmp_path, name, **options):
-    part = Partition("test", "临时目录", "NTFS", "只读", True, False, "fixture", "普通数据", "Windows")
+    part = Partition("test", "临时目录", "NTFS", "只读", True, False, "fixture", "普通数据", "Windows", str(tmp_path))
     return dict(partition_id="test", root=str(tmp_path), relative_path=name,
                 backend_spec=dict(kind="Windows", partition=asdict(part)), **options)
 

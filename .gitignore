@@ -6,3 +6,12 @@ __pycache__/
 build/
 dist/
 _archives/
+.env
+.env.*
+!.env.example
+*.log
+*.bak
+.coverage
+htmlcov/
+.idea/
+.vscode/

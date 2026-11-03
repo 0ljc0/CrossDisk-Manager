@@ -8,7 +8,7 @@ from app.core.backend import FileSystemBackend
 from app.core.browser import DirectoryPage, Partition, ReadOnlyCapabilities
 from app.core.inventory import PartitionInfo
 from app.core.capability_policy import CapabilityPolicy
-from app.backends.windows_native import NativeWindowsBackend
+from app.backends.windows_native import NativeWindowsBackend, normalize_root
 from app.backends.ext4_readonly import Ext4ReadOnlyBackend
 from app.core.virtual_path import VirtualPath
 
@@ -32,6 +32,9 @@ def open_backend(request: dict, operation: str = "list_dir") -> Iterator[FileSys
         backend = (Ext4ReadOnlyBackend.from_image(spec["image"], expected_fs=spec.get("fingerprint", ""))
                    if "image" in spec else Ext4ReadOnlyBackend.from_partition(spec, expected_fs=spec.get("fingerprint", "")))
     elif kind == "Windows":
+        expected_root = partition.volume_path
+        if not expected_root or normalize_root(request["root"]).casefold() != normalize_root(expected_root).casefold():
+            raise ValueError("访问根与分区身份不一致或缺少绑定根，拒绝启动后端")
         backend = NativeWindowsBackend(request["partition_id"], request["root"])
     else:
         raise ValueError("未知后端，仅允许查看分区信息")

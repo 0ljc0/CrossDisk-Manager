@@ -1,0 +1,15 @@
+{
+  "platform": "win32",
+  "administrator": false,
+  "checks": [
+    "native-directory",
+    "native-preview",
+    "ext4-image-directory",
+    "ext4-image-preview",
+    "cross-backend-search",
+    "gui-demo",
+    "gui-real-inventory-and-navigation",
+    "image-sha256-unchanged"
+  ],
+  "executable_sha256": "056a800a6bd40b16a12d76474f5429b34ee417e311c92c36eab170b999159130"
+}

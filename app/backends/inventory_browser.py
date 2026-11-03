@@ -60,7 +60,7 @@ class InventoryBrowserSource:
             validate_relative(relative)
             self.roots[identifier] = backend.root
             self.network[identifier] = Partition(identifier, drive, "网络共享", "只读", True, False,
-                                                 "显式打开的 UNC 共享；受 Windows 权限约束，仅只读", "网络共享", "Windows")
+                                                 "显式打开的 UNC 共享；受 Windows 权限约束，仅只读", "网络共享", "Windows", backend.root)
             return Location(identifier, relative)
         normalized = address.replace("\\", "/")
         for p in self.inventory.partitions:

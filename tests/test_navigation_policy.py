@@ -1,3 +1,4 @@
+from test_native_ui import bind_test_root
 """任务 06：统一路径、保护先于能力、跨后端导航与过期结果。"""
 
 from dataclasses import asdict, replace
@@ -107,7 +108,7 @@ def test_cross_backend_history_breadcrumbs_and_stale_result(tmp_path, sample):
     window.show()
     wait_scan(window)
     win_id, ext_id = window.inventory.partitions[2].id, window.inventory.partitions[5].id
-    window.source.roots[win_id] = str(windows)
+    bind_test_root(window, win_id, windows)
     window.source.ext4[ext_id]["image"] = str(image)
     window.partitions = {p.id: p for p in window.source.partitions()}
     window.navigate(VirtualPath(win_id, "Users"))

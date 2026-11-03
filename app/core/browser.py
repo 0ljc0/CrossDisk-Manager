@@ -19,6 +19,7 @@ class Partition:
     reason: str
     category: str = "未知类型"
     backend_name: str = ""
+    volume_path: str = ""  # Windows/UNC 上下文绑定根；空值不授予访问。
 
 
 @dataclass(frozen=True)

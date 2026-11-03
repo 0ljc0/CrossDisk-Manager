@@ -39,7 +39,7 @@ def test_async_paging_navigation_error_and_hidden(tmp_path, sample):
     wait_scan(window)
     partition_id = window.inventory.partitions[2].id  # 普通数据分区，不能伪造 EFI 的 browsable 标志。
     # 用可丢弃目录替换根，测试 GUI 与真实子进程，不接触任何原始磁盘。
-    window.source.roots[partition_id] = str(folder)
+    bind_test_root(window, partition_id, folder)
     from dataclasses import replace
     window.partitions[partition_id] = replace(window.partitions[partition_id], browsable=True)
     window.navigate(Location(partition_id))
@@ -115,10 +115,21 @@ def test_query_maps_denied_and_locked_errors(monkeypatch, capsys):
     request = dict(partition_id="test", root="C:\\", relative_path="", offset=0,
                    show_hidden=False, fingerprint="", backend_spec=dict(kind="Windows", partition=dict(
                        id="test", name="test", filesystem="NTFS", status="只读", browsable=True,
-                       writable=False, reason="test", category="普通数据")))
+                       writable=False, reason="test", category="普通数据", volume_path="C:\\")))
     monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(request)))
     monkeypatch.setattr("app.jobs.native_query.NativeWindowsBackend.list_dir",
                         lambda *a, **kw: (_ for _ in ()).throw(PermissionError("私密路径")))
     assert native_query.main() == 0
     result = json.loads(capsys.readouterr().out)
     assert "访问被拒绝" in result["error"] and "私密路径" not in result["error"]
+
+
+def bind_test_root(window, identifier, path):
+    """隔离目录必须同步绑定测试元数据，不能仅替换请求根。"""
+    from dataclasses import replace
+    inventory = replace(window.source.inventory, partitions=tuple(
+        replace(part, volume_path=str(path)) if part.id == identifier else part
+        for part in window.source.inventory.partitions))
+    window.source.inventory = inventory
+    window.inventory = inventory
+    window.source.roots[identifier] = str(path)

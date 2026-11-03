@@ -11,6 +11,7 @@ from PySide6.QtCore import QThread, Signal
 
 from app.core.browser import DirectoryPage, FileEntry, Location
 from app.core.preview import PreviewResult
+from app.core.runtime import worker_command, runtime_directory
 
 
 class DirectoryWorker(QThread):
@@ -31,9 +32,9 @@ class DirectoryWorker(QThread):
     def run(self) -> None:
         process = None
         try:
-            process = subprocess.Popen([sys.executable, "-B", "-m", "app.jobs.native_query"],
+            process = subprocess.Popen(worker_command('native'),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, encoding="utf-8", cwd=Path(__file__).resolve().parents[2],
+                text=True, encoding="utf-8", cwd=runtime_directory(),
                 env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1"),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             deadline = time.monotonic() + self.timeout

@@ -1,3 +1,4 @@
+from test_native_ui import bind_test_root
 """后台逐行搜索、范围、取消、定位与即时筛选。"""
 
 import logging
@@ -39,7 +40,7 @@ def test_ui_local_filter_global_sources_and_locate(tmp_path, sample):
     window.show()
     wait_scan(window)
     win_id, ext_id = window.inventory.partitions[2].id, window.inventory.partitions[5].id
-    window.source.roots[win_id] = str(source)
+    bind_test_root(window, win_id, source)
     window.source.ext4[ext_id]["image"] = str(image)
     sources, excluded = window.build_search_sources(2)
     assert ext_id not in [s["partition_id"] for s in sources]  # 不能自动搜索未验证 ext4。
@@ -124,7 +125,7 @@ def test_dialog_close_cancels_worker(tmp_path, sample):
     window.show()
     wait_scan(window)
     identifier = window.inventory.partitions[2].id
-    window.source.roots[identifier] = str(tmp_path)
+    bind_test_root(window, identifier, tmp_path)
     window.partitions = {p.id: p for p in window.source.partitions()}
     window.navigate(VirtualPath(identifier))
     wait_directory(window)

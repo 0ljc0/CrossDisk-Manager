@@ -103,8 +103,11 @@ class WriteDialog(QDialog):
         elif result['operation'] == 'write_file':
             self.version = value['version']
             self.text.document().setModified(False)
-        else:
+        elif (result['operation'] in ('rename', 'move', 'delete') and self.loaded_path and
+              (self.loaded_path.casefold() == result['path'].casefold() or
+               self.loaded_path.casefold().startswith(result['path'].casefold().rstrip('/') + '/'))):
             self.version = None
+            self.loaded_path = None
         self.status.setText(value.get('message', '文本已打开；保存时检查版本并保留备份'))
 
     def worker_finished(self):

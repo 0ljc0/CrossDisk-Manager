@@ -15,6 +15,7 @@ from app.services.disk_inventory import DiskInventoryService
 def main() -> int:
     parser = argparse.ArgumentParser(description="CrossDisk Manager")
     parser.add_argument("--demo", action="store_true", help="仅使用任务 02 的模拟数据")
+    parser.add_argument("--smoke-test", action="store_true", help="只读启动自检，自动退出")
     args = parser.parse_args()
     application = QApplication(sys.argv)
     application.setApplicationName("CrossDisk Manager")
@@ -36,7 +37,36 @@ def main() -> int:
     window = MainWindow(config, store, logger,
                         inventory_service=None if args.demo else DiskInventoryService())
     window.show()
-    logger.info("应用启动，安全模式：只读")
+    if args.smoke_test:
+        from PySide6.QtCore import QTimer
+        import time
+        started = time.monotonic()
+        smoke = {'navigated': False}
+        def finish_smoke():
+            if args.demo:
+                window.close()
+                application.exit(0)
+            elif window.inventory is not None and window.worker is None:
+                if not smoke['navigated']:
+                    from app.core.runtime import runtime_directory
+                    try:
+                        location = window.source.resolve_address(str(runtime_directory()))
+                        window.navigate(location)
+                        smoke['navigated'] = True
+                    except (ValueError, OSError):
+                        window.close()
+                        application.exit(4)
+                elif not window.loading and window.directory_worker is None:
+                    result = 4 if window.load_failed else 0
+                    window.close()
+                    application.exit(result)
+            elif time.monotonic() - started > 40:
+                window.close()
+                application.exit(3)
+        timer = QTimer(window)
+        timer.timeout.connect(finish_smoke)
+        timer.start(200)
+    logger.info("应用启动：默认只读浏览，Windows 写入需独立授权，ext4 禁写")
     return application.exec()
 
 

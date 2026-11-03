@@ -89,21 +89,24 @@ def copy_job(job, emit=lambda value: None, cancelled=lambda: False, paused=lambd
                         output = ntpath.join(destination, *relative.split("/"))
                         if entry.is_directory:
                             # 不合并既有目录，避免碰到其内部链接和既有内容。
-                            exists = os.path.lexists(output)
-                            identity = os.stat(output, follow_symlinks=False) if exists else None
-                            owned = identity is not None and job.created_directories.get(output) == (identity.st_dev, identity.st_ino)
-                            if exists and not owned:
-                                if job.conflict == "error":
-                                    raise FileExistsError()
-                                stats["skipped"] += 1
-                                notify("跳过已存在的整个目录")
-                                continue
-                            if not exists:
-                                os.mkdir(output)
-                                identity = os.stat(output, follow_symlinks=False)
-                                job.created_directories[output] = (identity.st_dev, identity.st_ino)
-                            with target_backend._guard("/".join((target_path, relative))):
-                                pass
+                            parent = relative.rsplit("/", 1)[0] if "/" in relative else ""
+                            with target_backend._guard("/".join(filter(None, (target_path, parent)))) as guarded:
+                                output = ntpath.join(guarded, relative.rsplit("/", 1)[-1])
+                                exists = os.path.lexists(output)
+                                identity = os.stat(output, follow_symlinks=False) if exists else None
+                                owned = identity is not None and job.created_directories.get(output) == (identity.st_dev, identity.st_ino)
+                                if exists and not owned:
+                                    if job.conflict == "error":
+                                        raise FileExistsError()
+                                    stats["skipped"] += 1
+                                    notify("跳过已存在的整个目录")
+                                    continue
+                                if not exists:
+                                    os.mkdir(output)
+                                    identity = os.stat(output, follow_symlinks=False)
+                                    job.created_directories[output] = (identity.st_dev, identity.st_ino)
+                                with target_backend._guard("/".join((target_path, relative))):
+                                    pass
                             offset, fingerprint = 0, ""
                             while True:
                                 checkpoint()

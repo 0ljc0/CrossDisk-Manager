@@ -16,7 +16,7 @@ from test_inventory import sample, parse
 
 
 def native_source(root, identifier="win"):
-    partition = Partition(identifier, identifier, "NTFS", "只读", True, False, "fixture", "普通数据", "Windows")
+    partition = Partition(identifier, identifier, "NTFS", "只读", True, False, "fixture", "普通数据", "Windows", str(root))
     return dict(partition_id=identifier, partition_name=identifier, relative_path="", root=str(root),
                 backend_spec=dict(kind="Windows", partition=asdict(partition)))
 

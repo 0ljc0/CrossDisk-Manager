@@ -1,3 +1,4 @@
+from test_native_ui import bind_test_root
 """真实子进程预览 Windows 临时文件和 ext4 镜像，不读取 Ubuntu 实盘。"""
 
 import logging
@@ -51,7 +52,7 @@ def test_preview_gui_encodings_more_image_binary_and_ext4(tmp_path, sample):
     window.show()
     wait_scan(window)
     win_id, ext_id = window.inventory.partitions[2].id, window.inventory.partitions[5].id
-    window.source.roots[win_id] = str(source)
+    bind_test_root(window, win_id, source)
     window.source.ext4[ext_id]["image"] = str(image)
     window.partitions = {p.id: p for p in window.source.partitions()}
     window.navigate(VirtualPath(win_id))
@@ -102,7 +103,7 @@ def test_preview_switch_and_close_cancel_active_process(tmp_path, sample):
     window.show()
     wait_scan(window)
     win_id = window.inventory.partitions[2].id
-    window.source.roots[win_id] = str(tmp_path)
+    bind_test_root(window, win_id, tmp_path)
     window.partitions = {p.id: p for p in window.source.partitions()}
     window.navigate(VirtualPath(win_id))
     wait_directory(window)

@@ -61,6 +61,10 @@ def _number(record: dict, name: str) -> int:
 
 def _flag(record: dict, name: str) -> bool:
     value = record.get(name, False)
+    # Storage may return null on removable/MBR devices. All flags read here
+    # (offline, read-only, hidden, system, boot) restrict access when true.
+    if value is None:
+        return True
     if type(value) is not bool:
         raise ValueError("清单标志无效")
     return value

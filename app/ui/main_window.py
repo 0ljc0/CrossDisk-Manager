@@ -38,6 +38,8 @@ from app.ui.write_dialog import WriteDialog
 from app.services.windows_write import WriteContext
 from app.backends.windows_native import NativeWindowsBackend
 from app.core.ext4_write import EXT4_WRITE_DISABLED, ext4_admission_status
+from app.core.version import EDITION
+from app.ui.log_dialog import LogDialog
 
 
 class PropertyView(QPlainTextEdit):
@@ -98,7 +100,7 @@ class MainWindow(QMainWindow):
         self.set_theme(config.theme)
         if self.inventory_service is not None:
             self.setWindowTitle("CrossDisk Manager · 跨分区文件管理器 · 只读浏览")
-            self.safety_label.setText("Windows / ext4 · 全局只读")
+            self.safety_label.setText("浏览只读 · Windows 写入需独立授权 · ext4 禁写")
             self.address.setToolTip("例如 C:\\Users、D:\\ 或普通 UNC 共享路径，回车打开")
             self.search.setPlaceholderText("筛选已加载的文件…")
             self.hidden_action.setText("显示隐藏文件")
@@ -184,13 +186,18 @@ class MainWindow(QMainWindow):
             group.addAction(action)
             theme_menu.addAction(action)
             self.theme_actions[key] = action
-        self.hidden_action = QAction("显示隐藏文件（模拟）", self, checkable=True)
+        self.hidden_action = QAction("显示隐藏文件", self, checkable=True)
         self.hidden_action.setChecked(self.config.show_hidden_files)
         self.hidden_action.toggled.connect(self.toggle_hidden)
         view_menu.addAction(self.hidden_action)
         help_menu = self.menuBar().addMenu("帮助")
-        self._action("关于演示", lambda: QMessageBox.information(
-            self, "关于", "CrossDisk Manager\n任务 08：只读浏览、预览与名称/属性搜索。\n搜索显式启动，有预算与取消，不读取文件内容或自动监控。\n所有文件写入功能禁用。"), help_menu)
+        self._action("查看本地日志", self.show_logs, help_menu)
+        self._action("关于", lambda: QMessageBox.information(self, "关于",
+            "CrossDisk Manager\n" + EDITION + "\nWindows 数据目录可受控写入；ext4 始终只读。\n真实 Ubuntu 与跨机器验收仍有待办，详见使用手册。"), help_menu)
+
+    def show_logs(self):
+        dialog = LogDialog(self)
+        dialog.exec()
 
     def _build_views(self) -> None:
         self.splitter = QSplitter(Qt.Orientation.Horizontal)

@@ -13,6 +13,7 @@ import time
 from PySide6.QtCore import QThread, Signal
 
 from app.core.search import SearchLimits, SearchQuery, SearchStats
+from app.core.runtime import worker_command, runtime_directory
 
 
 class SearchWorker(QThread):
@@ -58,9 +59,9 @@ class SearchWorker(QThread):
             latest["directories"] = max(latest["directories"], 1 if shown else 0)
             emit(dict(event="finished", stats=latest.copy()))
         try:
-            process = subprocess.Popen([sys.executable, "-B", "-m", "app.jobs.search_query"],
+            process = subprocess.Popen(worker_command('search'),
                 stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-                text=True, encoding="utf-8", cwd=Path(__file__).resolve().parents[2],
+                text=True, encoding="utf-8", cwd=runtime_directory(),
                 env=dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1"),
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             reader = threading.Thread(target=receive, daemon=True)

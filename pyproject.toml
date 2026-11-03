@@ -1,7 +1,11 @@
 [project]
 name = "crossdisk-manager"
-version = "0.1.0"
+version = "1.0.0rc1"
 description = "安全的 Windows 跨分区文件管理器"
+authors = [{name = "Jianchao Liu"}]
+license = "MIT"
+license-files = ["LICENSE"]
+readme = "README.md"
 requires-python = ">=3.11,<3.13"
 dynamic = ["dependencies"]
 

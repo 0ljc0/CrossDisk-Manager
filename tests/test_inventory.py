@@ -62,6 +62,26 @@ def test_volume_without_letter_associated_by_path(sample):
     assert parse(sample).partitions[0].filesystem == "FAT32"
 
 
+@pytest.mark.parametrize("name", ["IsHidden", "IsSystem", "IsBoot"])
+def test_null_partition_flag_restricts_only_affected_partition(sample, name):
+    sample["Partitions"][3][name] = None
+    inventory = parse(sample)
+    affected = inventory.partitions[3]
+    assert getattr(affected, {"IsHidden": "hidden", "IsSystem": "is_system",
+                              "IsBoot": "is_boot"}[name]) is True
+    if name != "IsBoot":
+        assert affected.status == "受保护"
+    assert inventory.partitions[2].filesystem == "NTFS"
+    assert len(inventory.partitions) == 6
+
+
+@pytest.mark.parametrize("name,attribute", [("IsOffline", "offline"),
+                                          ("IsReadOnly", "read_only")])
+def test_null_disk_flag_remains_restrictive(sample, name, attribute):
+    sample["Disks"][0][name] = None
+    assert getattr(parse(sample).disks[0], attribute) is True
+
+
 def test_identity_survives_renumbering_and_detects_replacement(sample):
     original = parse(sample)
     sample["Disks"][0]["Number"] = 7
