@@ -1,0 +1,130 @@
+{
+  "date": "2026-11-07",
+  "removed_bytes": 143058296,
+  "removed_mib": 136.43,
+  "removed": [
+    {
+      "path": ".pytest_cache",
+      "bytes": 21796
+    },
+    {
+      "path": "app/__pycache__",
+      "bytes": 5595
+    },
+    {
+      "path": "app/backends/__pycache__",
+      "bytes": 79232
+    },
+    {
+      "path": "app/core/__pycache__",
+      "bytes": 55781
+    },
+    {
+      "path": "app/jobs/__pycache__",
+      "bytes": 22381
+    },
+    {
+      "path": "app/services/__pycache__",
+      "bytes": 179270
+    },
+    {
+      "path": "app/ui/__pycache__",
+      "bytes": 176545
+    },
+    {
+      "path": "build",
+      "bytes": 7292253
+    },
+    {
+      "path": "CrossDisk_Executor_Ubuntu_Kit.zip",
+      "bytes": 38168
+    },
+    {
+      "path": "CrossDisk_G0_Ubuntu_Kit",
+      "bytes": 7230
+    },
+    {
+      "path": "CrossDisk_G0_Ubuntu_Kit.zip",
+      "bytes": 3593
+    },
+    {
+      "path": "CrossDisk_IO_Ubuntu_Kit.zip",
+      "bytes": 18830
+    },
+    {
+      "path": "CrossDisk_Preflight_Ubuntu_Kit.zip",
+      "bytes": 26903
+    },
+    {
+      "path": "CrossDisk_Recovery_Ubuntu_Kit.zip",
+      "bytes": 34570
+    },
+    {
+      "path": "CrossDisk_Recovery_V2_Ubuntu_Kit.zip",
+      "bytes": 36148
+    },
+    {
+      "path": "CrossDisk_Write_Ubuntu_Kit.zip",
+      "bytes": 31214
+    },
+    {
+      "path": "e2fsck.txt",
+      "bytes": 270
+    },
+    {
+      "path": "g0.img",
+      "bytes": 134217728
+    },
+    {
+      "path": "scripts/__pycache__",
+      "bytes": 115524
+    },
+    {
+      "path": "tests/__pycache__",
+      "bytes": 692721
+    },
+    {
+      "path": "truth.json",
+      "bytes": 2544
+    }
+  ],
+  "evidence_moved": [
+    {
+      "source": "CrossDisk_Executor_Result_d63b8413935d.zip",
+      "destination": "docs/evidence/CrossDisk_Executor_Result_d63b8413935d.zip",
+      "sha256": "431CE0D2C48376EA1FA76F2C7DA09873B35A2F5AAF2DCD5CED99E525C98F5DC4"
+    },
+    {
+      "source": "CrossDisk_IO_Result_0312b10552a0.zip",
+      "destination": "docs/evidence/CrossDisk_IO_Result_0312b10552a0.zip",
+      "sha256": "1F70FE2096A4535D319F9F4339C0D5556AEDA8D4A7CA292E4FB924485DBAF703"
+    },
+    {
+      "source": "CrossDisk_Preflight_Result_18df6f9865c6.zip",
+      "destination": "docs/evidence/CrossDisk_Preflight_Result_18df6f9865c6.zip",
+      "sha256": "D9271705B4B06D23B81309E09790A1F39D2A2D04D059D05636F90222C8EDC651"
+    },
+    {
+      "source": "CrossDisk_Preflight_Result_4658025a706f.zip",
+      "destination": "docs/evidence/CrossDisk_Preflight_Result_4658025a706f.zip",
+      "sha256": "5476EEE0F3EB56D0323772967D7884DEF6D105CFCDBADF7C00B623C6B3EA2002"
+    },
+    {
+      "source": "CrossDisk_Write_Result_9c775744c5f6.zip",
+      "destination": "docs/evidence/CrossDisk_Write_Result_9c775744c5f6.zip",
+      "sha256": "C53F42D7311595601094CC622A6E8A1549657E591D34C6D380189A7D9B23B7F5"
+    }
+  ],
+  "g0_archive": "docs/evidence/G0_fixture_2026-11-06.zip",
+  "delivery_hashes_unchanged": true,
+  "preserved": [
+    ".git",
+    ".venv",
+    "_archives",
+    "app",
+    "scripts",
+    "tests",
+    "docs",
+    "dist"
+  ]
+}

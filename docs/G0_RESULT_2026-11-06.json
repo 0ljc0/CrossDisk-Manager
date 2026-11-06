@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-06",
+  "scope": "G0 snapshot capability on supplied Linux image",
+  "result": "PASS",
+  "python": "3.12.8",
+  "pytsk3": "20260715",
+  "linux": "Linux-6.8.0-138-generic-x86_64-with-glibc2.35",
+  "linux_python": "3.10.12",
+  "image_sha256": "8f9665b0910b38db4f58a62622962249b55fec53609d83c444623c695040650e",
+  "image_unchanged": true,
+  "differences": [],
+  "paths_compared": 6,
+  "fields_per_path": 10,
+  "filesystem_check_exit": 0,
+  "write_authorized": false
+}

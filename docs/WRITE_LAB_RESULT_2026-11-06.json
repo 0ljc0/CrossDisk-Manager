@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-06",
+  "source": "CrossDisk_Write_Result_9c775744c5f6.zip",
+  "source_sha256": "c53f42d7311595601094cc622a6e8a1549657e591d34c6d380189a7d9b23b7f5",
+  "scope": "Disposable-image single-file happy-path write and restore",
+  "result": "PASS",
+  "checks": 12,
+  "report_journal_consistent": true,
+  "filesystem_check_reported_ok": true,
+  "production_apply_allowed": false,
+  "limitations": [
+    "No crash/power-loss recovery validation",
+    "No production apply or resume interface",
+    "Only a newly generated disposable image was used"
+  ]
+}

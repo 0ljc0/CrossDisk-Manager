@@ -1,0 +1,20 @@
+{
+  "date": "2026-11-07",
+  "source": "CrossDisk_IO_Result_0312b10552a0.zip",
+  "source_sha256": "1f70fe2096a4535d319f9f4339c0d5556aeda8d4a7ca292e4fb924485dbaf703",
+  "result": "PASS",
+  "cases": 7,
+  "individual_logs_consistent": true,
+  "prepublication_originals_unchanged": true,
+  "postpublication_needs_recovery": true,
+  "no_automatic_retry": true,
+  "no_later_operations": true,
+  "filesystem_check_reported_ok": true,
+  "production_apply_allowed": false,
+  "limitations": [
+    "EIO is software injection, not physical-device failure",
+    "ENOSPC tests image allocation, not backup-volume exhaustion",
+    "No power loss or production executor",
+    "Post-publication NEEDS_RECOVERY files remain in retained test image"
+  ]
+}

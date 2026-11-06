@@ -15,3 +15,27 @@ _archives/
 htmlcov/
 .idea/
 .vscode/
+
+/g0-results/
+
+/CrossDisk_G0_Ubuntu_Kit.zip
+
+/g0.img
+
+/CrossDisk_G0_Ubuntu_Kit/
+
+/CrossDisk_Preflight_Ubuntu_Kit.zip
+/CrossDisk_Preflight_Ubuntu_Kit/
+/CrossDisk_Preflight_Result_*.zip
+/CrossDisk_Write_Ubuntu_Kit.zip
+/CrossDisk_Write_Result_*.zip
+/CrossDisk_Recovery_Ubuntu_Kit.zip
+/CrossDisk_Recovery_Result_*.zip
+/CrossDisk_Recovery_V2_Ubuntu_Kit.zip
+/CrossDisk_IO_Ubuntu_Kit.zip
+/CrossDisk_IO_Result_*.zip
+/CrossDisk_Executor_Ubuntu_Kit.zip
+/CrossDisk_Executor_Result_*.zip
+
+# Local raw test evidence (including filesystem images); publish reports/source.
+/docs/evidence/*.zip

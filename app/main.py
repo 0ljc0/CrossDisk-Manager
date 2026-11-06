@@ -16,9 +16,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="CrossDisk Manager")
     parser.add_argument("--demo", action="store_true", help="仅使用任务 02 的模拟数据")
     parser.add_argument("--smoke-test", action="store_true", help="只读启动自检，自动退出")
+    parser.add_argument("--bundle-smoke", help=argparse.SUPPRESS)
     args = parser.parse_args()
+    if args.bundle_smoke and (not args.smoke_test or args.demo):
+        parser.error("--bundle-smoke requires --smoke-test without --demo")
     application = QApplication(sys.argv)
     application.setApplicationName("CrossDisk Manager")
+    if args.bundle_smoke:
+        from app.ui.bundle_smoke import run
+        return run(application,args.bundle_smoke)
     try:
         logger = setup_logging()
     except OSError:

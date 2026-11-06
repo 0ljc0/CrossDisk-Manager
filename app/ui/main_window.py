@@ -40,6 +40,7 @@ from app.backends.windows_native import NativeWindowsBackend
 from app.core.ext4_write import EXT4_WRITE_DISABLED, ext4_admission_status
 from app.core.version import EDITION
 from app.ui.log_dialog import LogDialog
+from app.ui.bundle_dialog import BundleDialog, LABELS
 
 
 class PropertyView(QPlainTextEdit):
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
         self.policy = CapabilityPolicy()
         self.search_dialog: SearchDialog | None = None
         self.write_dialogs = []
+        self.bundle_dialogs = {}
         self.copy_dialog = CopyDialog(self)
         self.copy_dialog.idle.connect(lambda: self.close() if self.close_pending else None)
         self.inventory_service = inventory_service
@@ -166,6 +168,8 @@ class MainWindow(QMainWindow):
         operations.setMovable(False)
         self.windows_write_action = self._action("配置 Windows 写入目录…", self.configure_windows_write, operations)
         self.windows_write_action.setEnabled(False)
+        self.bundle_action = self._action("ext4 暂存与修改包…", self.configure_bundle, operations)
+        self.bundle_action.setEnabled(False)
         self.ext4_admission_action = self._action("ext4 写入准入说明", self.show_ext4_admission, operations)
         self.copy_action = self._action("复制/导出到 Windows…", self.export_selected, operations)
         self.queue_action = self._action("任务队列", self.copy_dialog.show, operations)
@@ -298,6 +302,7 @@ class MainWindow(QMainWindow):
         if partition_id:
             self.navigate(Location(partition_id))
         elif self.inventory and index.data(DISK_ROLE):
+            self.bundle_action.setEnabled(False)
             disk = next(d for d in self.inventory.disks if d.id == index.data(DISK_ROLE))
             self.request_id += 1
             self.cancel_directory()
@@ -311,6 +316,7 @@ class MainWindow(QMainWindow):
             self.properties.setText(f"磁盘 {disk.number}\n型号：{disk.model}\n容量：{disk.size:,} B ({disk.size / 2**30:.2f} GiB)\n分区表：{disk.partition_style}\n状态：{disk.status}\n离线：{disk.offline}\n只读：{disk.read_only}\nGPT GUID：{disk.guid or '不可用'}\n稳定标识：{disk.id}\n身份可靠：{disk.identity_stable}")
 
     def navigate(self, location: Location, record: bool = True) -> None:
+        self.bundle_action.setEnabled(False)
         try:
             location = Location(location.partition_id, location.relative_path)
         except ValueError as exc:
@@ -496,6 +502,48 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "ext4 写入未开放", status.reason + "\n\n待满足：\n" +
             "\n".join("• " + item for item in status.missing) +
             "\n\n本程序不安装驱动、不自动挂载、不修改系统盘状态。详见 docs/EXT4_WRITE_FEASIBILITY.md。")
+
+    def configure_bundle(self):
+        if not self.location or not isinstance(self.source, InventoryBrowserSource):
+            return
+        partition_id = self.location.partition_id
+        if partition_id not in self.source.ext4 or self.loading or self.load_failed:
+            return
+        if partition_id in self.bundle_dialogs:
+            dialog = self.bundle_dialogs[partition_id]
+            dialog.show(); dialog.raise_(); dialog.activateWindow()
+            return
+        if not self.location.path:
+            self.statusBar().showMessage("请先进入专用用户数据目录，再配置暂存范围。")
+            return
+        try:
+            spec = self.source.request_spec(partition_id)
+            dialog = BundleDialog(dict(partition_id=partition_id, backend_spec=spec), self.location.path,
+                                  self.store.path.parent / "pending-bundles", self)
+            dialog.changed.connect(lambda value: self.update_bundle_statuses())
+            dialog.closed.connect(lambda pid=partition_id: self.bundle_closed(pid))
+            self.bundle_dialogs[partition_id] = dialog
+            dialog.show(); dialog.start()
+        except (OSError, ValueError) as exc:
+            self.statusBar().showMessage(str(exc))
+
+    def bundle_closed(self, partition_id):
+        self.bundle_dialogs.pop(partition_id, None)
+        self.update_bundle_statuses()
+
+    def update_bundle_statuses(self):
+        statuses = {}
+        if self.location:
+            dialog = self.bundle_dialogs.get(self.location.partition_id)
+            if dialog:
+                for op in dialog.operations:
+                    for relative in (op["path"], op.get("new_path")):
+                        if relative:
+                            full = dialog.root + "/" + relative
+                            parent, _, name = full.rpartition("/")
+                            if parent == self.location.path:
+                                statuses[name] = LABELS[op["type"]] + "（尚未应用）"
+        self.file_model.set_pending_statuses(statuses)
 
     def export_selected(self) -> None:
         try:
@@ -786,6 +834,9 @@ class MainWindow(QMainWindow):
         self.fingerprint = page.fingerprint
         self.next_offset = page.next_offset
         self.file_model.append_entries(page.entries)
+        self.bundle_action.setEnabled(isinstance(self.source, InventoryBrowserSource)
+                                      and self.location.partition_id in self.source.ext4 and bool(self.location.path))
+        self.update_bundle_statuses()
         self.more_button.setVisible(page.next_offset is not None)
         self.more_button.setEnabled(True)
         self.filter_entries(self.search.text())
@@ -796,6 +847,7 @@ class MainWindow(QMainWindow):
         self.report_error(message)
 
     def report_error(self, message: str) -> None:
+        self.bundle_action.setEnabled(False)
         self.request_id += 1
         self.cancel_directory()
         self.loading, self.load_failed = False, True
@@ -813,6 +865,7 @@ class MainWindow(QMainWindow):
             self.launch_directory()
 
     def scan_inventory(self) -> None:
+        self.bundle_action.setEnabled(False)
         self.windows_write_action.setEnabled(False)
         if self.worker and self.worker.isRunning():
             return
@@ -892,6 +945,10 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(self.block_reason)
 
     def closeEvent(self, event: QCloseEvent) -> None:
+        for dialog in list(self.bundle_dialogs.values()):
+            if not dialog.close():
+                event.ignore()
+                return
         if any(dialog.worker for dialog in self.write_dialogs):
             self.statusBar().showMessage("正在写入，请等待任务完成后关闭")
             event.ignore()

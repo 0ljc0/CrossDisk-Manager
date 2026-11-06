@@ -1,0 +1,33 @@
+{
+  "date": "2026-11-07",
+  "source": "CrossDisk_Executor_Result_d63b8413935d.zip",
+  "source_sha256": "431ce0d2c48376ea1fa76f2c7da09873b35a2f5aaf2dcd5ced99e525c98f5dc4",
+  "result": "PASS",
+  "checks": 11,
+  "executions": [
+    {
+      "bundle_id": "normal-d63b8413935d",
+      "status": "ROLLED_BACK",
+      "operations": 5,
+      "events": 41,
+      "journal_sha256": "d613886a6358d69b7802ab5eb22a8c6e63a629cedc3356daa7fb72ee538eccae"
+    },
+    {
+      "bundle_id": "interrupted-d63b8413935d",
+      "status": "ROLLED_BACK",
+      "operations": 5,
+      "events": 41,
+      "journal_sha256": "5c374cf79108fe7450138231e5a3b85617e4d5942d393c21ad9357eb983e33eb"
+    }
+  ],
+  "event_chains_verified": true,
+  "backup_metadata_verified": true,
+  "recovery_plan_hashes_verified": true,
+  "filesystem_check_reported_ok": true,
+  "physical_partition_apply_allowed": false,
+  "limitations": [
+    "Report/JSON verification only; no final image or backup bodies supplied",
+    "No power loss validation",
+    "Only loop test image scope"
+  ]
+}

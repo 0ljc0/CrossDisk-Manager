@@ -1,0 +1,17 @@
+{
+  "platform": "win32",
+  "administrator": false,
+  "checks": [
+    "native-directory",
+    "native-preview",
+    "ext4-image-directory",
+    "ext4-image-preview",
+    "cross-backend-search",
+    "frozen-ext4-staging-ui-and-bundle-export",
+    "gui-demo",
+    "gui-real-inventory-and-navigation",
+    "image-sha256-unchanged"
+  ],
+  "executable_sha256": "27aa1af1acd8ea2dd99e6fa669b3ebe9cf602759198d5de0ea9954d662474ebd",
+  "version": "1.0.0rc2"
+}

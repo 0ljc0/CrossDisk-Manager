@@ -4,7 +4,7 @@
 
 A cross-partition file manager for Windows 10/11 x64, built with Python, PySide6, and pytsk3. Browse, preview, search, and copy Windows files; make controlled changes inside explicitly authorized Windows data directories. Ubuntu ext4 access is currently read-only.
 
-- **Version:** 1.0.0rc1, a V1.0 read-only-ext4 release candidate.
+- **Version:** 1.0.0rc2, a bundle-staging and image-recovery release candidate. Direct Windows ext4 writes and application to physical Ubuntu partitions remain disabled.
 - **Author and copyright holder:** Jianchao Liu.
 - **Project license:** [MIT](LICENSE). Third-party components retain their own licenses.
 - **Application UI:** Simplified Chinese. An English README does not imply an English UI.
@@ -77,7 +77,7 @@ Cancelling a copy keeps completed files and cleans up only that job's unfinished
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-The latest full regression on **2026-11-03** had **185 passed and 1 skipped**. The skip required Windows symbolic-link creation privileges. Dependency checks and the real disk inventory / GUI navigation startup check passed. See the [pre-upload validation record](docs/UPLOAD_2026-11-03.md) and [earlier repair record](docs/REPAIR_2026-10-31.md).
+The latest full regression on **2026-11-07** had **277 passed and 1 skipped**. The skip required Windows symbolic-link creation privileges. Dependency checks and nine actual executable checks passed, including staging UI export, directory/preview/search and disk inventory navigation. See the [rc2 delivery record](docs/RELEASE_RC2.md).
 
 Build a Windows folder-based candidate from source:
 
@@ -88,7 +88,7 @@ Build a Windows folder-based candidate from source:
 .\.venv\Scripts\python.exe -m scripts.build_release --package-only
 ```
 
-The build produces `dist/CrossDiskManager/CrossDiskManager.exe`, a ZIP, and a SHA-256 file. Keep the complete extracted folder, including `_internal`, notices, and documentation; do not copy the executable alone. Previous build outputs were cleaned up, so a ready-to-run executable is not currently guaranteed to accompany this checkout. This documentation update does not rebuild or publish binaries.
+The build produces `dist/CrossDiskManager/CrossDiskManager.exe`, a Windows ZIP, and a SHA-256 file. Keep the complete extracted folder, including `_internal`, notices, and documentation; do not copy the executable alone. rc2 has been rebuilt and tested locally, with Ubuntu loop-image execution tools included. It has not been publicly released. Run `python -m scripts.build_delivery` to assemble the combined delivery archive.
 
 ## Validation status
 

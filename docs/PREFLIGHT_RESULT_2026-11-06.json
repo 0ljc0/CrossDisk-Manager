@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-06",
+  "source": "CrossDisk_Preflight_Result_4658025a706f.zip",
+  "sha256": "5476eee0f3eb56d0323772967d7884def6d105cfcdbadf7c00b623c6b3ea2002",
+  "result": "PASS",
+  "cases": 14,
+  "target_unchanged": true,
+  "filesystem_check_reported_ok": true,
+  "scope": "Linux preflight, not recovery experiment"
+}

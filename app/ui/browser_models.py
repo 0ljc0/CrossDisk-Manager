@@ -67,9 +67,16 @@ class FileTableModel(QAbstractTableModel):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.entries: tuple[FileEntry, ...] = ()
+        self.pending_statuses = {}
+
+    def set_pending_statuses(self, values):
+        self.pending_statuses = dict(values)
+        if self.entries:
+            self.dataChanged.emit(self.index(0, 5), self.index(len(self.entries)-1, 5))
 
     def set_entries(self, entries: tuple[FileEntry, ...]) -> None:
         self.beginResetModel()
+        self.pending_statuses = {}
         self.entries = entries
         self.endResetModel()
 
@@ -108,7 +115,7 @@ class FileTableModel(QAbstractTableModel):
             return (entry.name, kind,
                     "未知" if entry.size is None else "—" if entry.is_directory else f"{entry.size:,} B", entry.modified or "未知",
                     f"读：{self.permission(entry.readable)} / 写：{self.permission(entry.writable)}",
-                    entry.access_status, entry.backend_source)[index.column()]
+                    self.pending_statuses.get(entry.name, entry.access_status), entry.backend_source)[index.column()]
         return None
 
     @staticmethod

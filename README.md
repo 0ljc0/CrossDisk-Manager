@@ -4,7 +4,7 @@
 
 面向 Windows 10/11 x64 的跨分区文件管理器，使用 Python、PySide6 和 pytsk3。支持 Windows 文件浏览、预览、搜索、复制，以及明确授权目录内的受控写入；Ubuntu ext4 当前只读。
 
-- **版本**：1.0.0rc1，V1.0 只读 ext4 版验收候选。
+- **版本**：1.0.0rc2，修改包与镜像恢复版验收候选。Windows 对 ext4 直接写入及 Ubuntu 真实分区应用仍禁用。
 - **作者及版权署名**：Jianchao Liu。
 - **项目许可证**：[MIT](LICENSE)。第三方依赖保留各自许可证。
 - **界面语言**：当前为简体中文；双语 README 不代表已有英文界面。
@@ -21,6 +21,7 @@
 | Windows 受控写入 | 非启动普通数据卷中的明确授权目录；支持新建、保存、重命名、同卷移动和文件/空目录删除 |
 | ext4 读取 | pytsk3 只读后端，须验证身份、范围和文件系统；原始设备权限不足时明确拒绝 |
 | ext4 写入 | **禁用**，没有实际写驱动接入，不能通过配置开启 |
+| ext4 修改包暂存 | 进入目录后通过“ext4 暂存与修改包…”暂存五类操作并导出；Ubuntu 执行与恢复首版仅限显式注册的 loop 测试镜像，实机验收待完成 |
 | 保护分区 | EFI、MSR、Recovery 等仅显示受限元数据，不开放普通写操作 |
 
 GUI 不自动提权；Windows 实际 ACL 仍决定访问权限。应用不格式化磁盘、不修改分区表、不将磁盘离线、不自动挂载 Ubuntu，也不绕过加密或锁定。
@@ -77,7 +78,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip check
 ```
 
-最近一次完整回归（2026-11-03）：**185 项通过，1 项因 Windows 符号链接创建权限跳过**；依赖检查与真实磁盘扫描及界面导航启动自检通过。详见[上传前验证记录](docs/UPLOAD_2026-11-03.md)及[此前修复记录](docs/REPAIR_2026-10-31.md)。
+最近一次完整回归（2026-11-07）：**277 项通过，1 项因 Windows 符号链接创建权限跳过**；依赖检查通过。实际 exe 的 9 项黑盒检查通过，包含暂存面板导出、目录/预览/搜索及真实磁盘扫描导航。见 [rc2 交付记录](docs/RELEASE_RC2.md)。
 
 从源码构建 Windows 文件夹式候选包：
 
@@ -88,7 +89,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m scripts.build_release --package-only
 ```
 
-构建生成 `dist/CrossDiskManager/CrossDiskManager.exe`、ZIP 和 SHA-256 文件。需保留整个解压目录，包括 `_internal`、许可与文档，不能只复制 exe。旧构建产物已经清理，仓库当前不保证附带可直接运行的 exe；本轮文档更新没有重新打包或公开发布。
+构建生成 `dist/CrossDiskManager/CrossDiskManager.exe`、Windows ZIP 和 SHA-256 文件。需保留整个解压目录，包括 `_internal`、许可与文档，不能只复制 exe。rc2 已在本地重新构建并验证，附带 Ubuntu 镜像执行工具；未公开发布。组合交付包通过 `python -m scripts.build_delivery` 生成，快速使用见 [QUICK_START_CN.md](QUICK_START_CN.md)。
 
 ## 验证状态
 

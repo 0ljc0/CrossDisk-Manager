@@ -21,10 +21,19 @@ def main():
         subprocess.run([sys.executable, '-m', 'PyInstaller', '--clean', '--noconfirm', str(root / 'CrossDiskManager.spec')],
                        cwd=root, env=build_env, check=True)
     output = root / 'dist/CrossDiskManager'
-    for name in ('README.md', 'README.en.md', 'LICENSE', 'USER_GUIDE.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md'):
+    for name in ('README.md', 'README.en.md', 'LICENSE', 'USER_GUIDE.md', 'SECURITY.md', 'THIRD_PARTY_NOTICES.md', 'QUICK_START_CN.md'):
         shutil.copy2(root / name, output / name)
     shutil.copytree(root / 'docs', output / 'docs', dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns('screenshots', 'tasks'))
+    screenshot = root / 'docs/screenshots/phase6-bundle-panel.png'
+    if screenshot.is_file():
+        (output / 'docs/screenshots').mkdir(exist_ok=True)
+        shutil.copy2(screenshot, output / 'docs/screenshots' / screenshot.name)
+    from scripts.build_executor_kit import main as build_ubuntu_tools
+    build_ubuntu_tools()
+    tools = output / 'Ubuntu-tools'
+    tools.mkdir(exist_ok=True)
+    shutil.copy2(root / 'CrossDisk_Executor_Ubuntu_Kit.zip', tools / 'CrossDisk_Executor_Ubuntu_Kit.zip')
     licenses = output / 'third_party'
     licenses.mkdir(exist_ok=True)
     components = []

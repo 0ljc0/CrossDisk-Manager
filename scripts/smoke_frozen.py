@@ -57,6 +57,13 @@ def main():
             dict(sources=[native, ext4], query=asdict(SearchQuery('*.py')), limits=asdict(SearchLimits()))).splitlines()]
         assert events[-1]['stats']['complete'] and events[-1]['stats']['matches'] == 2
         report['checks'].append('cross-backend-search')
+        bundle_request=directory / 'bundle-smoke.json'
+        bundle_request.write_text(json.dumps(dict(request=ext4,scope='home/demo')),encoding='utf-8')
+        invoke(['--smoke-test','--bundle-smoke',str(bundle_request)])
+        from scripts.validate_bundle import check
+        bundle_result=check(directory / 'bundle-smoke-output')
+        assert bundle_result['package_valid'] and bundle_result['operations']==1
+        report['checks'].append('frozen-ext4-staging-ui-and-bundle-export')
         invoke(['--demo', '--smoke-test'])
         report['checks'].append('gui-demo')
         invoke(['--smoke-test'])
@@ -64,7 +71,9 @@ def main():
         assert digest == hashlib.sha256(image.read_bytes()).hexdigest()
         report['checks'].append('image-sha256-unchanged')
         report['executable_sha256'] = hashlib.sha256(executable.read_bytes()).hexdigest()
-    target = root / 'docs/TASK12_FROZEN_SMOKE.json'
+    from app.core.version import VERSION
+    report['version'] = VERSION
+    target = root / f'docs/FROZEN_SMOKE_{VERSION}.json'
     target.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
